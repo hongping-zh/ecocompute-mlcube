@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://quantenergy.tech/schema/energy.schema.json",
+  "title": "EcoCompute energy-methodology report",
+  "description": "One LLM inference energy measurement, in an MLCommons-style energy-reporting format. Not a certified benchmark result.",
+  "type": "object",
+  "required": ["schema_version", "benchmark", "scenario", "system_under_test", "workload", "measurement", "results"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "benchmark": {"type": "string"},
+    "follows_mlcommons_energy_reporting_conventions": {"type": "boolean"},
+    "certified_benchmark_result": {"type": "boolean", "const": false},
+    "scenario": {"type": "string", "enum": ["SingleStream", "Offline"]},
+    "timestamp_utc": {"type": "string"},
+    "system_under_test": {
+      "type": "object",
+      "required": ["gpu", "gpu_arch", "accelerator_count"],
+      "properties": {
+        "gpu": {"type": "string"},
+        "gpu_arch": {"type": "string"},
+        "accelerator_count": {"type": "integer", "minimum": 1},
+        "host": {"type": "string"}
+      }
+    },
+    "workload": {
+      "type": "object",
+      "required": ["model_name", "precision", "batch_size"],
+      "properties": {
+        "model_name": {"type": "string"},
+        "params_b": {"type": ["number", "null"]},
+        "precision": {"type": "string", "enum": ["FP16", "NF4", "INT8"]},
+        "batch_size": {"type": "integer", "minimum": 1},
+        "context_length": {"type": "integer"}
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "required": ["method", "sample_rate_hz"],
+      "properties": {
+        "method": {"type": "string"},
+        "sample_rate_hz": {"type": "integer"},
+        "tokens_per_run": {"type": "integer"},
+        "iterations": {"type": "integer"}
+      }
+    },
+    "measurement_source": {"type": "string"},
+    "results": {
+      "type": "object",
+      "required": ["energy_per_token_mj", "basis"],
+      "properties": {
+        "total_energy_joules": {"type": ["number", "null"]},
+        "tokens_generated": {"type": ["integer", "null"]},
+        "energy_per_token_mj": {"type": ["number", "null"], "description": "millijoules per generated token (== J per 1k tokens)"},
+        "fp16_energy_per_token_mj": {"type": ["number", "null"]},
+        "vs_fp16_energy_pct": {"type": ["number", "null"], "description": "signed % vs FP16; negative = quantization saves energy"},
+        "avg_power_watts": {"type": ["number", "null"]},
+        "throughput_tokens_per_s": {"type": ["number", "null"]},
+        "basis": {"type": "string", "enum": ["measured", "interpolated", "extrapolated", "unavailable"]},
+        "note": {"type": "string"}
+      }
+    },
+    "provenance": {"type": "object"},
+    "trademark_notice": {"type": "string"}
+  }
+}
