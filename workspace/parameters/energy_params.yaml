@@ -1,0 +1,13 @@
+# EcoCompute energy-methodology MLCube — run parameters.
+# Mirrors the /v1/estimate inputs so MLC WG readers see the MLPerf Inference
+# energy-reporting mapping directly.
+model_name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+params_b: 1.1              # billions of parameters (used for the no-GPU reference path)
+precision: "NF4"          # FP16 | NF4 | INT8
+batch_size: 1             # 1 -> SingleStream scenario; >1 -> Offline
+gpu_arch: "blackwell"     # turing | ada | blackwell | ampere (or a GPU name, e.g. "RTX 5090")
+context_length: 2048
+tokens: 256               # new tokens generated per run
+iterations: 10            # measured decode runs
+warmup: 2                 # warmup runs (not measured)
+sample_rate_hz: 10        # NVML power sampling rate
