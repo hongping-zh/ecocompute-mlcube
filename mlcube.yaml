@@ -1,0 +1,30 @@
+name: EcoCompute Energy Methodology
+description: >
+  Supplemental energy-methodology container for LLM inference. Measures the energy
+  of one (GPU x model x precision x batch) configuration with direct on-device NVML
+  power sampling and emits an energy.json report in an MLCommons-style energy-reporting
+  format. This is a reference / methodology implementation, not a certified benchmark
+  run (no accuracy target, no LoadGen).
+authors:
+  - {name: "Hongping Zhang", email: "", org: "Independent Researcher (MLCommons Member)"}
+
+platform:
+  accelerator_count: 1
+  accelerator_maker: NVIDIA
+  accelerator_model: "any CUDA GPU with NVML power telemetry"
+
+docker:
+  image: ecocompute/mlcube-energy:0.1.0
+  build_context: "."
+  build_file: "Dockerfile"
+  gpu_args: "--gpus=all"
+
+tasks:
+  run:
+    # measure one config and write outputs/energy.json
+    entrypoint: "python3 /workspace/entrypoint.py run"
+    parameters:
+      inputs:
+        parameters_file: {type: file, default: parameters/energy_params.yaml}
+      outputs:
+        output_dir: {type: directory, default: outputs/}
