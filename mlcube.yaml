@@ -6,7 +6,7 @@ description: >
   format. This is a reference / methodology implementation, not a certified benchmark
   run (no accuracy target, no LoadGen).
 authors:
-  - {name: "Hongping Zhang", email: "", org: "Independent Researcher (MLCommons Member)"}
+  - {name: "Hongping Zhang", email: "", org: "Independent Researcher"}
 
 platform:
   accelerator_count: 1
@@ -17,12 +17,15 @@ docker:
   image: ecocompute/mlcube-energy:0.1.0
   build_context: "."
   build_file: "Dockerfile"
+  build_strategy: auto
+  # accelerator_count > 0 -> gpu_args are used on `docker run`
   gpu_args: "--gpus=all"
+  cpu_args: ""
 
 tasks:
-  run:
-    # measure one config and write outputs/energy.json
-    entrypoint: "python3 /workspace/entrypoint.py run"
+  energy_estimate:
+    # measure one configuration and write outputs/energy.json
+    entrypoint: "python3 /workspace/entrypoint.py energy_estimate"
     parameters:
       inputs:
         parameters_file: {type: file, default: parameters/energy_params.yaml}
