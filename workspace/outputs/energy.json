@@ -4,12 +4,12 @@
   "follows_mlcommons_energy_reporting_conventions": true,
   "certified_benchmark_result": false,
   "scenario": "SingleStream",
-  "timestamp_utc": "2026-07-13T09:26:40.987304Z",
+  "timestamp_utc": "2026-07-14T01:46:09.502826Z",
   "system_under_test": {
     "gpu": "RTX 5090",
     "gpu_arch": "blackwell",
     "accelerator_count": 1,
-    "host": "Linux-5.15.200-x86_64-with-glibc2.35"
+    "host": "Linux-5.15.200-x86_64-with-glibc2.41"
   },
   "workload": {
     "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
@@ -19,7 +19,7 @@
     "context_length": 2048
   },
   "measurement": {
-    "method": "NVML on-device power sampling",
+    "method": "reference estimate from published dataset (no on-device measurement)",
     "sample_rate_hz": 10,
     "tokens_per_run": 256,
     "iterations": 10
