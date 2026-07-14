@@ -1,0 +1,13 @@
+# Example alternate parameter set: swap this in to change the run without editing
+# the default. MLCube-idiomatic parameter passing:
+#   mlcube run --task=energy_estimate parameters_file=parameters/bert_bs32.yaml
+model_name: "bert-base-uncased"
+params_b: 0.11
+precision: "NF4"
+batch_size: 32           # >1 -> Offline scenario
+gpu_arch: "ampere"
+context_length: 512
+tokens: 256
+iterations: 10
+warmup: 2
+sample_rate_hz: 10
