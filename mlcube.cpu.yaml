@@ -1,0 +1,28 @@
+name: EcoCompute Energy Methodology (CPU verify)
+description: >
+  CPU-only build of the EcoCompute energy MLCube, used to verify the MLCube contract
+  (CLI, parameter passing, workspace mounts, energy.json output) without a GPU. On a
+  host without an NVIDIA GPU the container writes a report from the published dataset,
+  flagged measurement_source="ecocompute-dataset (no local GPU)" — it never fabricates
+  a fresh measurement. Use mlcube.yaml (not this file) for real on-GPU measurement.
+authors:
+  - {name: "Hongping Zhang", email: "", org: "Independent Researcher"}
+
+platform:
+  accelerator_count: 0
+
+docker:
+  image: ecocompute/mlcube-energy:cpu-verify
+  build_context: "."
+  build_file: "Dockerfile.cpu"
+  build_strategy: auto
+  cpu_args: ""
+
+tasks:
+  energy_estimate:
+    entrypoint: "python3 /workspace/entrypoint.py energy_estimate"
+    parameters:
+      inputs:
+        parameters_file: {type: file, default: parameters/energy_params.yaml}
+      outputs:
+        output_dir: {type: directory, default: outputs/}
