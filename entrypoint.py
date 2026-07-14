@@ -252,7 +252,8 @@ def build_report(p, measured, ref, fp16_measured=None):
             "context_length": int(p.get("context_length", 2048)),
         },
         "measurement": {
-            "method": "NVML on-device power sampling",
+            "method": ("NVML on-device power sampling" if measured
+                       else "reference estimate from published dataset (no on-device measurement)"),
             "sample_rate_hz": int(p.get("sample_rate_hz", 10)),
             "tokens_per_run": int(p.get("tokens", 256)),
             "iterations": int(p.get("iterations", 10)),
@@ -303,6 +304,9 @@ def load_params(args):
         import yaml
         with open(args.parameters_file) as f:
             p = yaml.safe_load(f) or {}
+    # --model is an alias for --model_name (docker-run / dev convenience)
+    if getattr(args, "model", None):
+        p["model_name"] = args.model
     for k in ("model_name", "precision", "gpu_arch"):
         if getattr(args, k):
             p[k] = getattr(args, k)
@@ -369,25 +373,32 @@ def _guess_params(model_name):
     return float(m.group(1)) if m else 1.1
 
 
+def _add_run_args(parser):
+    parser.add_argument("--parameters_file", default=None)
+    parser.add_argument("--output_dir", default="workspace/outputs")
+    parser.add_argument("--model_name", default=None)
+    parser.add_argument("--model", default=None, help="alias for --model_name")
+    parser.add_argument("--precision", default=None, choices=[None, "FP16", "NF4", "INT8"])
+    parser.add_argument("--gpu_arch", default=None)
+    parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--params_b", type=float, default=None)
+    parser.add_argument("--tokens", type=int, default=None)
+    parser.add_argument("--iterations", type=int, default=None)
+    parser.add_argument("--warmup", type=int, default=None)
+    parser.add_argument("--sample_rate_hz", type=int, default=None)
+    parser.add_argument("--context_length", type=int, default=None)
+    parser.add_argument("--dry_run", action="store_true", help="force the no-GPU reference path")
+
+
 def main():
     ap = argparse.ArgumentParser(description="EcoCompute energy-methodology MLCube")
     sub = ap.add_subparsers(dest="task", required=True)
-    r = sub.add_parser("run", help="measure one config and write energy.json")
-    r.add_argument("--parameters_file", default=None)
-    r.add_argument("--output_dir", default="workspace/outputs")
-    r.add_argument("--model_name", default=None)
-    r.add_argument("--precision", default=None, choices=[None, "FP16", "NF4", "INT8"])
-    r.add_argument("--gpu_arch", default=None)
-    r.add_argument("--batch_size", type=int, default=None)
-    r.add_argument("--params_b", type=float, default=None)
-    r.add_argument("--tokens", type=int, default=None)
-    r.add_argument("--iterations", type=int, default=None)
-    r.add_argument("--warmup", type=int, default=None)
-    r.add_argument("--sample_rate_hz", type=int, default=None)
-    r.add_argument("--context_length", type=int, default=None)
-    r.add_argument("--dry_run", action="store_true", help="force the no-GPU reference path")
+    # MLCube task name is `energy_estimate`; `run` kept as an alias.
+    for name, help_ in (("energy_estimate", "measure one config and write energy.json"),
+                        ("run", "alias of energy_estimate")):
+        _add_run_args(sub.add_parser(name, help=help_))
     args = ap.parse_args()
-    if args.task == "run":
+    if args.task in ("energy_estimate", "run"):
         run(args)
 
 
