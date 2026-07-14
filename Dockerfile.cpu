@@ -1,0 +1,17 @@
+# EcoCompute energy-methodology MLCube — CPU verification image.
+# Minimal image used to verify the MLCube contract (CLI, parameter passing,
+# workspace mounts, energy.json output) on hosts without a GPU. It carries only
+# what the no-GPU reference path needs; torch/transformers/bitsandbytes are not
+# installed, so gpu_available() is False and the container writes a dataset-derived
+# report (never a fabricated measurement). Use Dockerfile for real on-GPU runs.
+FROM python:3.10-slim
+
+ENV PYTHONUNBUFFERED=1
+RUN pip install --no-cache-dir "pyyaml>=6.0.1"
+
+WORKDIR /workspace
+COPY entrypoint.py /workspace/entrypoint.py
+COPY workspace/parameters /workspace/parameters
+
+ENTRYPOINT ["python3", "/workspace/entrypoint.py"]
+CMD ["energy_estimate"]
