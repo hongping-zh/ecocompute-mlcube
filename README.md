@@ -18,38 +18,61 @@ is reproducible on any CUDA GPU.
 
 ```
 ecocompute-mlcube/
-├── mlcube.yaml          # MLCube descriptor: run task, inputs/outputs, GPU platform
-├── Dockerfile           # cuda + torch + transformers + bitsandbytes + NVML
-├── entrypoint.py        # run task: load → (quantize) → warmup → NVML 10Hz → infer → energy.json
+├── mlcube.yaml          # MLCube descriptor: energy_estimate task, inputs/outputs, GPU platform
+├── mlcube.cpu.yaml      # CPU-only descriptor for GPU-less MLCube-contract verification / CI
+├── Dockerfile           # production, multi-stage: cuda + torch + transformers + bitsandbytes + NVML
+├── Dockerfile.cpu       # slim CPU image (verification/CI, no-GPU reference path only)
+├── entrypoint.py        # energy_estimate task: load → (quantize) → warmup → NVML 10Hz → infer → energy.json
 ├── requirements.txt     # transformers, bitsandbytes, nvidia-ml-py, ...
 ├── schema/energy.schema.json   # JSON Schema for the report (energy fields)
 └── workspace/
     ├── parameters/energy_params.yaml   # run inputs (mirror of /v1/estimate)
+    ├── parameters/bert_bs32.yaml       # example alternate params (model swap, batch_size=32)
     ├── models/          # HF cache / local weights
     └── outputs/energy.json             # result
 ```
 
 ## Run
 
-With the MLCube CLI (recommended):
+With the MLCube CLI (recommended). The task name is **`energy_estimate`**:
 
 ```bash
 pip install mlcube mlcube-docker
-mlcube run --task=run                       # uses workspace/parameters/energy_params.yaml
+
+# real measurement on an NVIDIA GPU (platform.accelerator_count=1 -> --gpus=all)
+mlcube run --mlcube=. --task=energy_estimate --platform=docker
+
+# change the run without editing defaults — swap the parameters file
+mlcube run --mlcube=. --task=energy_estimate \
+           parameters_file=parameters/bert_bs32.yaml output_dir=outputs_bert/
+```
+
+**No GPU? Verify the MLCube contract (build → param mount → energy.json) with the
+CPU descriptor** — this builds `Dockerfile.cpu` and runs the no-GPU reference path:
+
+```bash
+mlcube run --mlcube=mlcube.cpu.yaml --task=energy_estimate --platform=docker
 ```
 
 Directly (development / CI):
 
 ```bash
 # real measurement (requires an NVIDIA GPU + NVML)
-python3 entrypoint.py run --parameters_file workspace/parameters/energy_params.yaml \
-                          --output_dir workspace/outputs
+python3 entrypoint.py energy_estimate \
+    --parameters_file workspace/parameters/energy_params.yaml \
+    --output_dir workspace/outputs
 
 # force the no-GPU reference path (derives values from the published dataset)
-python3 entrypoint.py run --dry_run --model_name TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
-                          --precision NF4 --gpu_arch blackwell --params_b 1.1 \
-                          --output_dir workspace/outputs
+python3 entrypoint.py energy_estimate --dry_run \
+    --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
+    --precision NF4 --gpu_arch blackwell --params_b 1.1 \
+    --output_dir workspace/outputs
 ```
+
+> Parameter passing follows the MLCube convention: task inputs/outputs are the
+> `parameters_file` (a YAML holding `model_name` / `precision` / `batch_size` /
+> `gpu_arch` / …) and `output_dir`. For dev/`docker run` use, the entrypoint also
+> accepts those same fields as CLI flags (e.g. `--model`, `--batch_size`, `--precision`).
 
 ### Inputs (`energy_params.yaml`)
 
@@ -69,6 +92,19 @@ Fields align with MLCommons-style inference energy reporting: total joules, toke
 `throughput_tokens_per_s`, plus a signed `vs_fp16_energy_pct` (negative = quantization
 saves energy). Every result carries a `basis` (`measured` / `interpolated` /
 `extrapolated`) and a `measurement_source`. See `schema/energy.schema.json`.
+
+## Verified
+
+The container was exercised with the official MLCommons `mlcube` CLI (v0.0.9,
+docker platform):
+
+- `mlcube describe --mlcube=mlcube.yaml` — descriptor accepted; task
+  `energy_estimate` with `inputs=[parameters_file]`, `outputs=[output_dir]`.
+- `mlcube run --mlcube=mlcube.cpu.yaml --task=energy_estimate` — image built from
+  `Dockerfile.cpu`, workspace mounted, `workspace/outputs/energy.json` produced.
+- Parameter swap (`parameters_file=parameters/bert_bs32.yaml`) produced a distinct
+  report (`bert-base-uncased`, `batch_size=32` → Offline scenario).
+- Both reports validate against `schema/energy.schema.json`.
 
 ## No-GPU behaviour
 
