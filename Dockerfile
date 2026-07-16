@@ -11,9 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
-COPY requirements.txt /tmp/requirements.txt
+# Install the fully-pinned lock for reproducible, deterministic builds.
+COPY requirements.lock.txt /tmp/requirements.lock.txt
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt
+    pip install --no-cache-dir -r /tmp/requirements.lock.txt
 
 # ---------------------------------------------------------------- runtime --
 FROM ${CUDA_IMAGE} AS runtime
