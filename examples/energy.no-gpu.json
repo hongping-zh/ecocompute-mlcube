@@ -1,0 +1,42 @@
+{
+  "schema_version": "ecocompute-energy/1.0",
+  "benchmark": "ecocompute-energy-methodology",
+  "follows_mlcommons_energy_reporting_conventions": true,
+  "certified_benchmark_result": false,
+  "scenario": "SingleStream",
+  "timestamp_utc": "2026-07-16T00:11:58.474237Z",
+  "system_under_test": {
+    "gpu": "RTX 5090",
+    "gpu_arch": "blackwell",
+    "accelerator_count": 1,
+    "host": "Linux-5.15.200-x86_64-with-glibc2.35"
+  },
+  "workload": {
+    "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "params_b": 1.1,
+    "precision": "NF4",
+    "batch_size": 1,
+    "context_length": 2048
+  },
+  "measurement": {
+    "method": "reference estimate from published dataset (no on-device measurement)",
+    "sample_rate_hz": 10,
+    "tokens_per_run": 256,
+    "iterations": 10
+  },
+  "provenance": {
+    "tool": "https://quantenergy.tech",
+    "dataset_doi": "10.5281/zenodo.21066652",
+    "paper_ssrn": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6854700",
+    "code": "https://github.com/hongping-zh/ecocompute-ai"
+  },
+  "notice": "Not a certified benchmark result. Energy reported in an MLCommons-style format. MLCOMMONS, MLPERF, and MLCUBE are trademarks of MLCommons Association, referenced here nominatively.",
+  "measurement_source": "ecocompute-dataset (no local GPU)",
+  "results": {
+    "energy_per_token_mj": 2153.68,
+    "fp16_energy_per_token_mj": 1659.0,
+    "vs_fp16_energy_pct": 29.8,
+    "basis": "interpolated",
+    "note": "No local NVIDIA GPU detected \u2014 values derived from the published EcoCompute measurements, not a fresh on-device measurement."
+  }
+}
