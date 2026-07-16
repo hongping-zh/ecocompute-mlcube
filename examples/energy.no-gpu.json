@@ -4,7 +4,8 @@
   "follows_mlcommons_energy_reporting_conventions": true,
   "certified_benchmark_result": false,
   "scenario": "SingleStream",
-  "timestamp_utc": "2026-07-16T00:11:58.474237Z",
+  "scenario_note": "Nominal label derived from batch size (1 -> SingleStream, else Offline). This is NOT enforced by MLPerf LoadGen: the container runs its own warmup/iterations loop and does not apply LoadGen timing constraints, so results are a supplemental energy methodology, not a certified benchmark.",
+  "timestamp_utc": "2026-07-16T01:50:50.487816Z",
   "system_under_test": {
     "gpu": "RTX 5090",
     "gpu_arch": "blackwell",
