@@ -41,6 +41,12 @@ Expected output shape: [`examples/energy.no-gpu.json`](examples/energy.no-gpu.js
 (no-GPU reference) and [`examples/energy.measured.illustrative.json`](examples/energy.measured.illustrative.json)
 (on-GPU measured).
 
+**Compare your result online:** drag your `energy.json` onto the
+[**Run it yourself**](https://quantenergy.tech/?tab=run) tab at quantenergy.tech to
+overlay your measurement on the crossover curve (100% in-browser, nothing uploaded).
+The container's fields (`system_under_test.gpu_arch`, `workload.params_b`,
+`results.vs_fp16_energy_pct`, `results.basis`) map directly to the site's chart axes.
+
 ## Layout
 
 ```
