@@ -50,7 +50,8 @@ ecocompute-mlcube/
 ├── Dockerfile           # production, multi-stage: cuda + torch + transformers + bitsandbytes + NVML
 ├── Dockerfile.cpu       # slim CPU image (verification/CI, no-GPU reference path only)
 ├── entrypoint.py        # energy_estimate task: load → (quantize) → warmup → NVML 10Hz → infer → energy.json
-├── requirements.txt     # transformers, bitsandbytes, nvidia-ml-py, ...
+├── requirements.txt     # top-level runtime deps, exact == pins
+├── requirements.lock.txt# full transitive lock (pip freeze from the verified image)
 ├── requirements-dev.txt # pyyaml, jsonschema, pytest (tests only)
 ├── schema/energy.schema.json   # JSON Schema for the report (energy fields)
 ├── examples/            # sample energy.json outputs (no-GPU + measured), schema-valid
@@ -157,6 +158,37 @@ If no NVIDIA GPU / NVML is present (or `--dry_run` is set), the container does *
 fabricate a measurement. It emits values derived from the **published EcoCompute
 dataset** (Zenodo DOI `10.5281/zenodo.21066652`), flagged
 `measurement_source: "ecocompute-dataset (no local GPU)"` and with an explicit note.
+
+The same honesty guarantee holds if a GPU **is** present but NVML power telemetry is
+unavailable (some Turing / consumer / vGPU cards, or a driver that returns
+`NVML_ERROR_NOT_SUPPORTED`): the on-device path is probed first, and on failure the
+container falls back to the dataset path with
+`measurement_source: "ecocompute-dataset (on-device measurement failed)"` and
+`basis != "measured"` — it never labels a fallback as a real measurement, and it does
+not crash. A single dropped power read never aborts a run (see `results.dropped_samples`).
+
+## Scope & limitations (not a benchmark)
+
+- **No LoadGen.** The `scenario` field (`SingleStream` / `Offline`) is a *nominal* label
+  derived from `batch_size`; it is **not** enforced by MLPerf LoadGen. The container runs
+  its own warmup/iterations loop and applies **no** LoadGen timing constraints. This is a
+  supplemental **energy methodology** container, not a certified benchmark
+  (`certified_benchmark_result: false`). Every report carries this in `scenario_note`.
+- **No accuracy target.** Only energy/throughput are reported.
+- Report fields follow MLCommons-style energy-reporting conventions
+  (`follows_mlcommons_energy_reporting_conventions: true`) but are not certified results.
+
+## Reproducible builds
+
+`requirements.txt` pins the top-level runtime deps to exact `==` versions, and
+`requirements.lock.txt` pins **all** transitive dependencies (a `pip freeze` captured
+from the verified CUDA image). The `Dockerfile` installs from the lock so builds are
+deterministic — important because `bitsandbytes` NF4/INT8 kernels (and `torch`) change
+their numeric behaviour between releases. Regenerate the lock with:
+
+```bash
+docker run --rm --entrypoint pip <built-image> freeze > requirements.lock.txt
+```
 
 ## Provenance
 
