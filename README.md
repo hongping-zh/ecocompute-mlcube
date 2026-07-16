@@ -14,6 +14,33 @@ is reproducible on any CUDA GPU.
 > run.** There is no accuracy target and no LoadGen. Numbers produced here are
 > **not certified benchmark results**.
 
+## Quick start
+
+No GPU needed for a smoke test — the container falls back to a dataset-derived
+reference report (clearly flagged, never a fabricated measurement).
+
+```bash
+git clone https://github.com/hongping-zh/ecocompute-mlcube.git
+cd ecocompute-mlcube
+
+# 1) run the task directly (writes workspace/outputs/energy.json)
+python3 entrypoint.py energy_estimate --dry_run \
+    --parameters_file workspace/parameters/energy_params.yaml \
+    --output_dir workspace/outputs
+cat workspace/outputs/energy.json          # see examples/ for expected output
+
+# 2) or via the official MLCube CLI + Docker (no GPU)
+pip install mlcube mlcube-docker
+mlcube run --mlcube=mlcube.cpu.yaml --task=energy_estimate --platform=docker
+
+# 3) real measurement on an NVIDIA GPU
+mlcube run --mlcube=. --task=energy_estimate --platform=docker
+```
+
+Expected output shape: [`examples/energy.no-gpu.json`](examples/energy.no-gpu.json)
+(no-GPU reference) and [`examples/energy.measured.illustrative.json`](examples/energy.measured.illustrative.json)
+(on-GPU measured).
+
 ## Layout
 
 ```
@@ -24,7 +51,12 @@ ecocompute-mlcube/
 ├── Dockerfile.cpu       # slim CPU image (verification/CI, no-GPU reference path only)
 ├── entrypoint.py        # energy_estimate task: load → (quantize) → warmup → NVML 10Hz → infer → energy.json
 ├── requirements.txt     # transformers, bitsandbytes, nvidia-ml-py, ...
+├── requirements-dev.txt # pyyaml, jsonschema, pytest (tests only)
 ├── schema/energy.schema.json   # JSON Schema for the report (energy fields)
+├── examples/            # sample energy.json outputs (no-GPU + measured), schema-valid
+├── tests/               # pytest: schema validity, param passing, no-GPU honesty
+├── .github/workflows/mlcube-verify.yml   # CI: pytest + build + mlcube-style run + schema check
+├── LICENSE / NOTICE     # Apache-2.0
 └── workspace/
     ├── parameters/energy_params.yaml   # run inputs (mirror of /v1/estimate)
     ├── parameters/bert_bs32.yaml       # example alternate params (model swap, batch_size=32)
@@ -106,6 +138,19 @@ docker platform):
   report (`bert-base-uncased`, `batch_size=32` → Offline scenario).
 - Both reports validate against `schema/energy.schema.json`.
 
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests/ -q
+```
+
+The suite runs the `energy_estimate` task through its real CLI and asserts that
+every report validates against the schema, that parameters flow into the output,
+that `batch_size` selects the scenario, and that the no-GPU path never labels a
+result as `measured`. CI (`.github/workflows/mlcube-verify.yml`) runs these tests
+plus a full `Dockerfile.cpu` build + container run + schema check on every push/PR.
+
 ## No-GPU behaviour
 
 If no NVIDIA GPU / NVML is present (or `--dry_run` is set), the container does **not**
@@ -119,6 +164,10 @@ dataset** (Zenodo DOI `10.5281/zenodo.21066652`), flagged
 - Paper (SSRN #6854700): *Weight-Only Quantization Does Not Always Save Energy…* (under review)
 - Dataset DOI: `10.5281/zenodo.21066652`
 - Code: https://github.com/hongping-zh/ecocompute-ai
+
+## License
+
+[Apache License 2.0](LICENSE) © 2026 Hongping Zhang. See [`NOTICE`](NOTICE).
 
 ## Trademarks
 
