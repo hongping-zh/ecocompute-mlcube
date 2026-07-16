@@ -129,7 +129,12 @@ def reference_estimate(params_b, arch, precision):
 
 # --------------------------------------------------------------- measurement --
 class PowerSampler(threading.Thread):
-    """Samples GPU power via NVML at a fixed rate; integrates energy (trapezoid)."""
+    """Samples GPU power via NVML at a fixed rate; integrates energy (trapezoid).
+
+    Robust across architectures (Turing/Ampere/Ada/Hopper/Blackwell): a single
+    failed sample never kills the thread, and repeated failures set ``error`` so
+    the caller can decide to discard the run instead of reporting garbage.
+    """
 
     def __init__(self, handle, hz=10):
         super().__init__(daemon=True)
@@ -137,17 +142,30 @@ class PowerSampler(threading.Thread):
         self.handle = handle
         self.period = 1.0 / hz
         self.samples = []          # (t_seconds, watts)
-        self._stop = threading.Event()
+        self.dropped = 0           # count of failed reads
+        self.error = None          # set if power telemetry is unusable
+        # NB: named _stop_evt, not _stop, to avoid shadowing Thread._stop().
+        self._stop_evt = threading.Event()
 
     def run(self):
         t0 = time.time()
-        while not self._stop.is_set():
-            w = self._pynvml.nvmlDeviceGetPowerUsage(self.handle) / 1000.0  # mW -> W
-            self.samples.append((time.time() - t0, w))
+        consecutive = 0
+        while not self._stop_evt.is_set():
+            try:
+                mw = self._pynvml.nvmlDeviceGetPowerUsage(self.handle)  # milliwatts
+                self.samples.append((time.time() - t0, mw / 1000.0))
+                consecutive = 0
+            except Exception as e:  # NVMLError / unsupported field on this card
+                self.dropped += 1
+                consecutive += 1
+                # Bail out early if the card simply cannot report power at all.
+                if consecutive >= 5 and not self.samples:
+                    self.error = f"NVML power telemetry unavailable: {e}"
+                    break
             time.sleep(self.period)
 
     def stop(self):
-        self._stop.set()
+        self._stop_evt.set()
         self.join(timeout=2.0)
 
     def energy_joules(self):
@@ -170,18 +188,56 @@ def _quant_config(precision):
     return None
 
 
+class PowerUnsupportedError(RuntimeError):
+    """Raised when the GPU/driver cannot report power via NVML (e.g. some older cards)."""
+
+
+def _nvml_gpu_name(pynvml, handle):
+    name = pynvml.nvmlDeviceGetName(handle)
+    if isinstance(name, bytes):
+        name = name.decode(errors="replace")
+    return name
+
+
+def _assert_power_readable(pynvml, handle):
+    """Fail fast (before loading the model) if this card can't report power."""
+    try:
+        pynvml.nvmlDeviceGetPowerUsage(handle)
+    except Exception as e:  # NVMLError_NotSupported on some Turing/consumer/vGPU cards
+        raise PowerUnsupportedError(
+            f"this GPU/driver does not expose NVML power telemetry ({e}); "
+            "cannot produce a measured energy figure"
+        ) from e
+
+
 def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, hz):
-    """Load, (quantize,) warm up, then measure energy over `iterations` decode runs."""
+    """Load, (quantize,) warm up, then measure energy over `iterations` decode runs.
+
+    Raises PowerUnsupportedError if the card cannot report power, so the caller can
+    fall back to the published-dataset reference path instead of crashing.
+    """
     import torch
     import pynvml
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     pynvml.nvmlInit()
-    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-    gpu_name = pynvml.nvmlDeviceGetName(handle)
-    if isinstance(gpu_name, bytes):
-        gpu_name = gpu_name.decode()
+    try:
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        gpu_name = _nvml_gpu_name(pynvml, handle)
+        _assert_power_readable(pynvml, handle)
+        return _measure_with_handle(
+            pynvml, handle, gpu_name, model_name, precision, batch_size,
+            tokens, iterations, warmup, hz, torch, AutoModelForCausalLM, AutoTokenizer)
+    finally:
+        try:
+            pynvml.nvmlShutdown()
+        except Exception:
+            pass
 
+
+def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_size,
+                         tokens, iterations, warmup, hz, torch,
+                         AutoModelForCausalLM, AutoTokenizer):
     tok = AutoTokenizer.from_pretrained(model_name)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
@@ -214,8 +270,11 @@ def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, 
     wall = time.time() - t0
     sampler.stop()
 
+    if sampler.error or len(sampler.samples) < 2:
+        raise PowerUnsupportedError(
+            sampler.error or "NVML returned too few power samples to integrate energy")
+
     joules = sampler.energy_joules()
-    pynvml.nvmlShutdown()
     return {
         "gpu_name": gpu_name,
         "total_energy_joules": round(joules, 3),
@@ -224,11 +283,12 @@ def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, 
         "avg_power_watts": round(sampler.avg_watts(), 1),
         "throughput_tokens_per_s": round(total_new / wall, 1) if wall else None,
         "wall_seconds": round(wall, 3),
+        "dropped_samples": sampler.dropped,
     }
 
 
 # ------------------------------------------------------------------- reporting --
-def build_report(p, measured, ref, fp16_measured=None):
+def build_report(p, measured, ref, fp16_measured=None, measure_error=None):
     arch = norm_arch(p["gpu_arch"])
     scenario = "SingleStream" if int(p["batch_size"]) == 1 else "Offline"
     report = {
@@ -237,6 +297,12 @@ def build_report(p, measured, ref, fp16_measured=None):
         "follows_mlcommons_energy_reporting_conventions": True,
         "certified_benchmark_result": False,
         "scenario": scenario,
+        "scenario_note": (
+            "Nominal label derived from batch size (1 -> SingleStream, else Offline). "
+            "This is NOT enforced by MLPerf LoadGen: the container runs its own "
+            "warmup/iterations loop and does not apply LoadGen timing constraints, so "
+            "results are a supplemental energy methodology, not a certified benchmark."
+        ),
         "timestamp_utc": datetime.datetime.utcnow().isoformat() + "Z",
         "system_under_test": {
             "gpu": (measured or {}).get("gpu_name") or REFERENCE["gpu_label"].get(arch, p["gpu_arch"]),
@@ -286,14 +352,22 @@ def build_report(p, measured, ref, fp16_measured=None):
             report["results"]["vs_fp16_energy_pct"] = round(
                 (measured["energy_per_token_mj"] - base) / base * 100.0, 1)
     else:
-        report["measurement_source"] = "ecocompute-dataset (no local GPU)"
+        if measure_error:
+            source = "ecocompute-dataset (on-device measurement failed)"
+            note = ("On-device NVML measurement could not run on this GPU/driver "
+                    f"({measure_error}) — values derived from the published EcoCompute "
+                    "measurements, not a fresh on-device measurement.")
+        else:
+            source = "ecocompute-dataset (no local GPU)"
+            note = ("No local NVIDIA GPU detected — values derived from the published "
+                    "EcoCompute measurements, not a fresh on-device measurement.")
+        report["measurement_source"] = source
         report["results"] = {
             "energy_per_token_mj": ref["energy_per_token_mj"],
             "fp16_energy_per_token_mj": ref["fp16_energy_per_token_mj"],
             "vs_fp16_energy_pct": ref["vs_fp16_energy_pct"],
             "basis": ref["basis"],
-            "note": ("No local NVIDIA GPU detected — values derived from the published "
-                     "EcoCompute measurements, not a fresh on-device measurement."),
+            "note": note,
         }
     return report
 
@@ -340,17 +414,24 @@ def run(args):
     p = load_params(args)
     os.makedirs(args.output_dir, exist_ok=True)
     arch = norm_arch(p["gpu_arch"])
-    measured = fp16_measured = None
+    measured = fp16_measured = ref = None
+    measure_error = None
     if gpu_available() and not args.dry_run:
-        measured = measure_once(p["model_name"], p["precision"], int(p["batch_size"]),
-                                int(p["tokens"]), int(p["iterations"]), int(p["warmup"]),
-                                int(p["sample_rate_hz"]))
-        if p["precision"] != "FP16":
-            fp16_measured = measure_once(p["model_name"], "FP16", int(p["batch_size"]),
-                                         int(p["tokens"]), int(p["iterations"]),
-                                         int(p["warmup"]), int(p["sample_rate_hz"]))
-        ref = None
-    else:
+        try:
+            measured = measure_once(p["model_name"], p["precision"], int(p["batch_size"]),
+                                    int(p["tokens"]), int(p["iterations"]), int(p["warmup"]),
+                                    int(p["sample_rate_hz"]))
+            if p["precision"] != "FP16":
+                fp16_measured = measure_once(p["model_name"], "FP16", int(p["batch_size"]),
+                                             int(p["tokens"]), int(p["iterations"]),
+                                             int(p["warmup"]), int(p["sample_rate_hz"]))
+        except Exception as e:  # NVML/driver/arch/OOM issue -> fall back, don't crash
+            measure_error = str(e)
+            measured = fp16_measured = None
+            print(f"[ecocompute-mlcube] on-device measurement failed ({e}); "
+                  "falling back to published-dataset reference", file=sys.stderr)
+
+    if measured is None:
         ref = reference_estimate(float(p["params_b"] or _guess_params(p["model_name"])),
                                  arch, p["precision"])
         if ref is None:
@@ -359,7 +440,7 @@ def run(args):
             ref = {"energy_per_token_mj": None, "fp16_energy_per_token_mj": None,
                    "vs_fp16_energy_pct": None, "basis": "unavailable"}
 
-    report = build_report(p, measured, ref, fp16_measured)
+    report = build_report(p, measured, ref, fp16_measured, measure_error=measure_error)
     out = os.path.join(args.output_dir, "energy.json")
     with open(out, "w") as f:
         json.dump(report, f, indent=2)
