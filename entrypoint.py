@@ -35,6 +35,13 @@ import time
 
 SCHEMA_VERSION = "ecocompute-energy/1.0"
 
+# Website hooks (opt-in via --prefetch / --share). Both are best-effort and never
+# block or alter the measurement; --share encodes the result point into the URL
+# itself (no upload, no server storage, no DB) so it matches the site's
+# "100% in-browser, nothing uploaded" contract.
+DEFAULT_API_BASE = "https://ecocompute-estimator.zhanghongping1982.workers.dev"
+DEFAULT_SITE = "https://quantenergy.tech"
+
 # ------------------------------------------------------------------ reference --
 # Compact mirror of the EcoCompute measured dataset (build/measured.csv, curves.json).
 # Used ONLY for the no-GPU dry-run path so the container is testable off-hardware;
@@ -414,6 +421,10 @@ def run(args):
     p = load_params(args)
     os.makedirs(args.output_dir, exist_ok=True)
     arch = norm_arch(p["gpu_arch"])
+    if getattr(args, "prefetch", False):
+        prefetch_prediction(getattr(args, "api_base", DEFAULT_API_BASE),
+                            _effective_params_b(p), arch, p["precision"],
+                            int(p["batch_size"]))
     measured = fp16_measured = ref = None
     measure_error = None
     if gpu_available() and not args.dry_run:
@@ -441,10 +452,23 @@ def run(args):
                    "vs_fp16_energy_pct": None, "basis": "unavailable"}
 
     report = build_report(p, measured, ref, fp16_measured, measure_error=measure_error)
+    link = share_url(getattr(args, "site", DEFAULT_SITE), report) if getattr(args, "share", False) else None
+    if link:
+        report["share_url"] = link
     out = os.path.join(args.output_dir, "energy.json")
     with open(out, "w") as f:
         json.dump(report, f, indent=2)
     print(f"[ecocompute-mlcube] wrote {out} (source={report['measurement_source']})")
+    if getattr(args, "share", False):
+        if link:
+            with open(os.path.join(args.output_dir, "share_url.txt"), "w") as f:
+                f.write(link + "\n")
+            print("[ecocompute-mlcube] share this result (overlays your point on the "
+                  "crossover curve, 100% in-browser):\n  " + link)
+        else:
+            print("[ecocompute-mlcube] --share: nothing to overlay - need a "
+                  "vs_fp16_energy_pct and a known model size (non-FP16 run).",
+                  file=sys.stderr)
     return report
 
 
@@ -452,6 +476,79 @@ def _guess_params(model_name):
     import re
     m = re.search(r"(\d+(?:\.\d+)?)\s*[bB]\b", model_name or "")
     return float(m.group(1)) if m else 1.1
+
+
+def _effective_params_b(p):
+    """params_b from params, or a best-effort guess from the model name."""
+    try:
+        n = float(p.get("params_b")) if p.get("params_b") is not None else None
+    except (TypeError, ValueError):
+        n = None
+    return n if (n and n > 0) else _guess_params(p.get("model_name"))
+
+
+def prefetch_prediction(api_base, params_b, arch, precision, batch, timeout=6.0):
+    """Ask the website estimator (/v1/estimate) for its predicted energy delta.
+
+    Best-effort only: prints the site's prediction so a user can eyeball it
+    against the local measurement. Any network/timeout error is swallowed and
+    never blocks the run.
+    """
+    import urllib.parse
+    import urllib.request
+    q = urllib.parse.urlencode({"params_b": params_b, "arch": arch or "",
+                                "precision": precision, "batch": batch})
+    url = api_base.rstrip("/") + "/v1/estimate?" + q
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "ecocompute-mlcube/1.0 (+https://github.com/hongping-zh/ecocompute-mlcube)",
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read().decode())
+    except Exception as e:  # offline / DNS / timeout / HTTP error
+        print(f"[ecocompute-mlcube] prefetch skipped (site estimate unavailable: {e})",
+              file=sys.stderr)
+        return None
+    dp = data.get("delta_pct")
+    if dp is None:
+        print(f"[ecocompute-mlcube] prefetch: site returned no prediction "
+              f"({data.get('error', 'unknown')})", file=sys.stderr)
+        return None
+    print(f"[ecocompute-mlcube] site prediction (/v1/estimate): vs_fp16 ~ {dp:+.1f}% "
+          f"(basis: {data.get('basis', '?')}) - will compare with the local result")
+    return data
+
+
+def share_url(site, report):
+    """Encode the report's overlay point into a client-side deeplink.
+
+    The point (arch, params_b, vs_fp16_pct, basis, model, gpu) is base64url-JSON
+    encoded straight into the query string, so the site restores it purely in the
+    browser - nothing is uploaded and no server/DB stores anything.
+    """
+    import base64
+    res = report.get("results") or {}
+    w = report.get("workload") or {}
+    sut = report.get("system_under_test") or {}
+    d_e = res.get("vs_fp16_energy_pct")
+    n = w.get("params_b")
+    if n is None:
+        n = _guess_params(w.get("model_name"))
+    if d_e is None or not n:
+        return None
+    payload = {
+        "m": w.get("model_name") or "your model",
+        "N": round(float(n), 4),
+        "a": sut.get("gpu_arch") or "",
+        "p": w.get("precision") or "NF4",
+        "e": round(float(d_e), 2),
+        "b": res.get("basis") or "unavailable",
+        "g": sut.get("gpu") or "",
+    }
+    blob = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+    return site.rstrip("/") + "/?tab=run&overlay=" + blob
 
 
 def _add_run_args(parser):
@@ -469,6 +566,16 @@ def _add_run_args(parser):
     parser.add_argument("--sample_rate_hz", type=int, default=None)
     parser.add_argument("--context_length", type=int, default=None)
     parser.add_argument("--dry_run", action="store_true", help="force the no-GPU reference path")
+    parser.add_argument("--prefetch", action="store_true",
+                        help="before measuring, ask the website estimator (/v1/estimate) "
+                             "for its predicted energy delta vs FP16 (best-effort, offline-safe)")
+    parser.add_argument("--share", action="store_true",
+                        help="after measuring, print a shareable quantenergy.tech overlay link "
+                             "(point encoded in the URL; nothing uploaded)")
+    parser.add_argument("--api_base", default=DEFAULT_API_BASE,
+                        help="estimator API base used by --prefetch")
+    parser.add_argument("--site", default=DEFAULT_SITE,
+                        help="website base used to build --share overlay links")
 
 
 def main():
