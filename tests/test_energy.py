@@ -134,6 +134,53 @@ def test_measure_failure_falls_back_without_claiming_measured():
     assert "NVML" in report["results"]["note"]
 
 
+# --- website hooks: --share overlay link + --prefetch (no network needed) -----
+
+def _decode_overlay(url):
+    import base64
+    import urllib.parse
+    blob = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["overlay"][0]
+    blob += "=" * (-len(blob) % 4)
+    return json.loads(base64.urlsafe_b64decode(blob))
+
+
+def test_share_url_encodes_overlay_point():
+    params = ecc.load_params(_ns(gpu_arch="blackwell", params_b=1.1, precision="NF4"))
+    ref = ecc.reference_estimate(1.1, "blackwell", "NF4")
+    report = ecc.build_report(params, measured=None, ref=ref)
+    url = ecc.share_url("https://quantenergy.tech", report)
+    assert url and url.startswith("https://quantenergy.tech/?tab=run&overlay=")
+    o = _decode_overlay(url)
+    assert o["a"] == "blackwell" and o["N"] == 1.1 and o["p"] == "NF4"
+    assert o["e"] == report["results"]["vs_fp16_energy_pct"]
+    assert o["b"] == report["results"]["basis"]
+
+
+def test_share_url_is_none_without_delta():
+    """FP16 / unavailable runs have no vs_fp16_energy_pct, so no overlay link."""
+    params = ecc.load_params(_ns(gpu_arch="blackwell", params_b=3, precision="FP16"))
+    ref = ecc.reference_estimate(3.0, "blackwell", "FP16")
+    report = ecc.build_report(params, measured=None, ref=ref)
+    report["results"]["vs_fp16_energy_pct"] = None
+    assert ecc.share_url("https://quantenergy.tech", report) is None
+
+
+def test_share_flag_writes_link_file(tmp_path):
+    run_cli(tmp_path, "--gpu_arch", "blackwell", "--params_b", "1.1",
+            "--precision", "NF4", "--share")
+    link = (tmp_path / "share_url.txt").read_text().strip()
+    assert link.startswith("https://quantenergy.tech/?tab=run&overlay=")
+    report = json.loads((tmp_path / "energy.json").read_text())
+    assert report["share_url"] == link
+
+
+def test_prefetch_is_offline_safe():
+    """A dead endpoint must return None quickly and never raise."""
+    out = ecc.prefetch_prediction("http://127.0.0.1:9", 1.1, "blackwell", "NF4", 1,
+                                  timeout=0.5)
+    assert out is None
+
+
 def _ns(**over):
     """Minimal argparse-like namespace with all run args defaulted to None."""
     fields = ("parameters_file", "output_dir", "model_name", "model", "precision",
