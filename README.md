@@ -47,6 +47,29 @@ overlay your measurement on the crossover curve (100% in-browser, nothing upload
 The container's fields (`system_under_test.gpu_arch`, `workload.params_b`,
 `results.vs_fp16_energy_pct`, `results.basis`) map directly to the site's chart axes.
 
+### Compare straight from the terminal (`--prefetch` / `--share`)
+
+Two optional flags wire the run to the website — both are best-effort and never
+block or change the measurement:
+
+```bash
+python3 entrypoint.py energy_estimate \
+    --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
+    --precision NF4 --gpu_arch blackwell --params_b 1.1 \
+    --output_dir workspace/outputs --prefetch --share
+```
+
+- `--prefetch` — before measuring, asks the site estimator
+  (`/v1/estimate`) for its predicted energy delta vs FP16 and prints it, so you
+  can eyeball prediction vs. your measured result. Offline/timeout → silently
+  skipped.
+- `--share` — after measuring, prints (and writes `share_url.txt`) a link like
+  `https://quantenergy.tech/?tab=run&overlay=<base64url>`. The overlay point is
+  encoded **in the URL itself** — opening it restores your marker on the
+  crossover curve entirely in the browser. **Nothing is uploaded and no server
+  stores anything**, consistent with the site's privacy model. The same link is
+  also added to `energy.json` as `share_url`.
+
 ## Layout
 
 ```
