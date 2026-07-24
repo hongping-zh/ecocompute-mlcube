@@ -54,9 +54,10 @@ if python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)"
   echo "[setup] usable CUDA PyTorch already present:"
   python -c "import torch; print('   torch', torch.__version__, 'cuda', torch.version.cuda, 'device', torch.cuda.get_device_name(0))"
 else
-  echo "[setup] no CUDA-enabled torch found — installing cu121 wheels"
-  python -m pip install --index-url https://download.pytorch.org/whl/cu121 \
-    torch torchvision torchaudio
+  echo "[setup] no CUDA-enabled torch found — installing cu121 torch"
+  # Only torch is needed (entrypoint.py doesn't use torchvision/torchaudio);
+  # skipping them saves ~1GB of disk and download time.
+  python -m pip install --index-url https://download.pytorch.org/whl/cu121 torch
 fi
 
 echo

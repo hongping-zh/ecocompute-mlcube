@@ -33,10 +33,14 @@ mkdir -p "$ECO_BASE"
 
 # --- keep pip cache + temp on the data disk ---------------------------------
 # AutoDL's system disk (/root) is tiny and often nearly full; the default pip
-# cache (~/.cache/pip) and TMPDIR (/tmp) live there and can overflow it while
-# installing large wheels (torch is ~2.5GB). Route both onto the data disk.
-export PIP_CACHE_DIR="${PIP_CACHE_DIR:-$ECO_BASE/pip-cache}"
-export TMPDIR="${TMPDIR:-$ECO_BASE/tmp}"
+# cache (~/.cache/pip) and TMPDIR live there and overflow it while installing
+# large wheels (torch unpacks to several GB in TMPDIR). Force ALL of these onto
+# the data disk. Note: forced (not `:-`) because AutoDL frequently pre-sets
+# TMPDIR=/tmp on the system disk, which is exactly what overflows.
+export PIP_CACHE_DIR="$ECO_BASE/pip-cache"
+export TMPDIR="$ECO_BASE/tmp"
+export TMP="$TMPDIR"
+export TEMP="$TMPDIR"
 mkdir -p "$PIP_CACHE_DIR" "$TMPDIR"
 
 # --- python venv + hugging face cache + results ----------------------------
