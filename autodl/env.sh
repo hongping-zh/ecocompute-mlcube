@@ -31,6 +31,14 @@ fi
 export ECO_BASE
 mkdir -p "$ECO_BASE"
 
+# --- keep pip cache + temp on the data disk ---------------------------------
+# AutoDL's system disk (/root) is tiny and often nearly full; the default pip
+# cache (~/.cache/pip) and TMPDIR (/tmp) live there and can overflow it while
+# installing large wheels (torch is ~2.5GB). Route both onto the data disk.
+export PIP_CACHE_DIR="${PIP_CACHE_DIR:-$ECO_BASE/pip-cache}"
+export TMPDIR="${TMPDIR:-$ECO_BASE/tmp}"
+mkdir -p "$PIP_CACHE_DIR" "$TMPDIR"
+
 # --- python venv + hugging face cache + results ----------------------------
 export VENV_DIR="${VENV_DIR:-$ECO_BASE/venv}"
 export HF_HOME="${HF_HOME:-$ECO_BASE/hf}"                 # HF datasets/hub cache
@@ -87,6 +95,8 @@ eco_print_config() {
 [env] ECO_BASE      = $ECO_BASE
 [env] VENV_DIR      = $VENV_DIR
 [env] HF_HOME       = $HF_HOME
+[env] PIP_CACHE_DIR = $PIP_CACHE_DIR
+[env] TMPDIR        = $TMPDIR
 [env] HF_ENDPOINT   = $HF_ENDPOINT
 [env] RESULTS_DIR   = $RESULTS_DIR
 [env] GPU_ARCH      = $GPU_ARCH ($GPU_LABEL)
