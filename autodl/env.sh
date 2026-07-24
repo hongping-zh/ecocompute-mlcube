@@ -75,13 +75,25 @@ export PRECISIONS="${PRECISIONS:-FP16 NF4 INT8}"
 # Kept in one place so setup can pre-download and the sweep can iterate it.
 export MODELS_FILE="${MODELS_FILE:-$REPO_DIR/autodl/models.txt}"
 
-# --- academic acceleration (AutoDL) ----------------------------------------
-# Speeds up github.com / huggingface / pytorch downloads. Safe no-op elsewhere.
+# --- proxy / academic acceleration (AutoDL) --------------------------------
+# By DEFAULT we do NOT enable AutoDL's academic-acceleration proxy: that proxy
+# only whitelists github/huggingface/pytorch and BREAKS domestic mirrors — pip
+# against mirrors.aliyun.com through it returns "from versions: none". Our
+# workflow uses the aliyun pip mirror + hf-mirror.com, which both work on
+# AutoDL's default network WITHOUT any proxy, so we clear any inherited proxy.
+# Opt back in with USE_TURBO=1 only if you specifically need direct
+# huggingface.co / github.com access (then domestic mirrors may stop working).
+if [ "${USE_TURBO:-0}" != "1" ]; then
+  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY 2>/dev/null || true
+fi
+
 eco_enable_turbo() {
-  if [ -f /etc/network_turbo ]; then
+  if [ "${USE_TURBO:-0}" = "1" ] && [ -f /etc/network_turbo ]; then
     # shellcheck disable=SC1091
     source /etc/network_turbo || true
-    echo "[env] AutoDL academic acceleration enabled (/etc/network_turbo)"
+    echo "[env] AutoDL academic acceleration enabled (USE_TURBO=1)"
+  else
+    echo "[env] proxy off (domestic mirrors: aliyun pip + hf-mirror). USE_TURBO=1 to enable."
   fi
 }
 
