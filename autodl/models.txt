@@ -1,0 +1,16 @@
+# EcoCompute RTX 4090D sweep matrix.  Format:  <hf_model_id> <params_b>
+# Lines starting with # and blank lines are ignored.
+#
+# The first four rows reproduce the models already shown for "RTX 4090D" on
+# quantenergy.tech (Qwen2-0.5B, TinyLlama-1.1B, Qwen2-1.5B, Qwen2.5-3B) so you
+# can confirm your fresh NVML measurements match the published anchors.
+# The 7B row EXTENDS the measured range on Ada (currently the site only draws
+# ada up to 3B) — this is where new, publishable data comes from.
+#
+# 24 GB is enough for FP16 up to ~7B and NF4/INT8 well beyond; add larger rows
+# (e.g. Qwen/Qwen2.5-14B 14.0 for NF4/INT8 only) once the small ones pass.
+Qwen/Qwen2-0.5B                     0.5
+TinyLlama/TinyLlama-1.1B-Chat-v1.0  1.1
+Qwen/Qwen2-1.5B                     1.5
+Qwen/Qwen2.5-3B                     3.0
+Qwen/Qwen2-7B                       7.0
