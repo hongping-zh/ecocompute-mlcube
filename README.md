@@ -16,24 +16,33 @@ is reproducible on any CUDA GPU.
 
 ## Quick start — one command, no configuration
 
-On any host with Docker, an NVIDIA GPU and the
-[container toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html):
+On any host with an NVIDIA GPU:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hongping-zh/ecocompute-mlcube/main/quickstart.sh | bash
 ```
 
-That pulls the prebuilt image, measures **NF4 and its own FP16 baseline** on
-TinyLlama-1.1B, writes a schema-validated `energy.json` into `./ecocompute-out/`,
-and prints a link that overlays your point on the published curve. Typical first
-run is well under 15 minutes (image pull + ~2 GB model download dominate; the
-measurement itself is a few minutes), and later runs reuse both caches.
+That measures **NF4 and its own FP16 baseline** on TinyLlama-1.1B, writes a
+schema-validated `energy.json` into `./ecocompute-out/`, and prints a link that
+overlays your point on the published curve. Typical first run is well under 15
+minutes (the ~2 GB model download and the one-time image pull or dependency
+install dominate; the measurement itself is a few minutes), and later runs reuse
+the caches.
+
+The script picks how to run itself, and says which it picked:
+
+| | when | what it does |
+|---|---|---|
+| **docker** | the Docker daemon answers | pulls `ghcr.io/…/ecocompute-mlcube:latest` and runs it with `--gpus all`; nothing is installed on the host |
+| **native** | no usable Docker — rented GPU instances (AutoDL, vast.ai, …) are themselves containers and cannot nest one | clones this repo and installs into a venv, reusing the host's CUDA PyTorch; keeps the checkout, venv and model cache on the data disk when there is one |
+
+Force either with `ECOCOMPUTE_MODE=docker` / `ECOCOMPUTE_MODE=native`. Both paths
+run the same `entrypoint.py` and produce the same report.
 
 No flags are needed: `gpu_arch` defaults to `auto` and is derived from the NVML
-device name, so a run cannot silently label an RTX 4090 as Blackwell. Nothing is
-installed on the host except the image. If you would rather read the script
-first, it is [`quickstart.sh`](quickstart.sh) — 100 lines, and it prints every
-`docker` command it runs.
+device name, so a run cannot silently label an RTX 4090 as Blackwell. If you
+would rather read the script first, it is [`quickstart.sh`](quickstart.sh), and
+it prints every command it runs.
 
 Common overrides (all optional):
 
@@ -139,7 +148,7 @@ ecocompute-mlcube/
 ├── schema/energy.schema.json   # JSON Schema for the report (energy fields)
 ├── examples/            # sample energy.json outputs (no-GPU + measured), schema-valid
 ├── tests/               # pytest: schema validity, param passing, no-GPU honesty
-├── quickstart.sh        # zero-config one-liner: pull → run → validate → share link
+├── quickstart.sh        # zero-config one-liner (docker or, without it, a venv install)
 ├── .github/workflows/ci.yml             # CI: pytest + shellcheck + CPU image + schema check
 ├── .github/workflows/publish-image.yml  # builds and pushes ghcr.io/hongping-zh/ecocompute-mlcube
 ├── LICENSE / NOTICE     # Apache-2.0
