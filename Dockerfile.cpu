@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir "pyyaml>=6.0.1"
 WORKDIR /workspace
 COPY entrypoint.py /workspace/entrypoint.py
 COPY workspace/parameters /workspace/parameters
+COPY schema /workspace/schema
 
 ENTRYPOINT ["python3", "/workspace/entrypoint.py"]
 CMD ["energy_estimate"]

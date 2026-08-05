@@ -190,3 +190,98 @@ def _ns(**over):
     for k, v in over.items():
         setattr(ns, k, v)
     return ns
+
+
+# --- zero-config arch detection --------------------------------------------
+
+@pytest.mark.parametrize("nvml_name,expected", [
+    ("NVIDIA GeForce RTX 4090", "ada"),
+    ("NVIDIA GeForce RTX 4090 D", "ada"),
+    ("NVIDIA L40S", "ada"),
+    ("NVIDIA L4", "ada"),
+    ("NVIDIA RTX 4000 Ada Generation", "ada"),
+    ("NVIDIA GeForce RTX 5090", "blackwell"),
+    ("NVIDIA B200", "blackwell"),
+    ("NVIDIA H100 80GB HBM3", "hopper"),
+    ("NVIDIA H200", "hopper"),
+    ("NVIDIA A100-SXM4-40GB", "ampere"),
+    ("NVIDIA A800-SXM4-80GB", "ampere"),
+    ("NVIDIA A10G", "ampere"),
+    ("NVIDIA RTX A6000", "ampere"),
+    ("NVIDIA GeForce RTX 3090", "ampere"),
+    ("Tesla T4", "turing"),
+    ("NVIDIA GeForce RTX 2080 Ti", "turing"),
+    ("Tesla V100-SXM2-16GB", "volta"),
+    ("NVIDIA GeForce GTX 1080", None),
+    ("", None),
+    (None, None),
+])
+def test_detect_arch(nvml_name, expected):
+    assert ecc.detect_arch(nvml_name) == expected
+
+
+def test_resolve_arch_keeps_explicit_value(monkeypatch):
+    monkeypatch.setattr(ecc, "probe_gpu_name", lambda: "NVIDIA GeForce RTX 4090")
+    p = {"gpu_arch": "turing"}
+    ecc.resolve_arch(p)
+    assert p["gpu_arch"] == "turing", "an explicit arch must never be overridden"
+
+
+def test_resolve_arch_auto_uses_nvml_name(monkeypatch):
+    monkeypatch.setattr(ecc, "probe_gpu_name", lambda: "NVIDIA A100-SXM4-40GB")
+    p = {"gpu_arch": "auto"}
+    ecc.resolve_arch(p)
+    assert p["gpu_arch"] == "ampere"
+
+
+def test_resolve_arch_auto_without_nvml_does_not_guess(monkeypatch):
+    monkeypatch.setattr(ecc, "probe_gpu_name", lambda: None)
+    p = {"gpu_arch": "auto"}
+    ecc.resolve_arch(p)
+    assert p["gpu_arch"] == "unknown"
+
+
+def test_shipped_params_default_to_auto_arch():
+    import yaml
+    params = yaml.safe_load(
+        (REPO / "workspace" / "parameters" / "energy_params.yaml").read_text())
+    assert params["gpu_arch"] == "auto", "the zero-config path relies on this default"
+
+
+def test_auto_arch_run_is_schema_valid_without_a_gpu(tmp_path):
+    """`gpu_arch: auto` on a GPU-less host: no crash, no fabricated measurement."""
+    report = run_cli(tmp_path, "--gpu_arch", "auto", "--params_b", "1.1")
+    jsonschema.validate(report, SCHEMA)
+    assert report["results"]["basis"] != "measured"
+
+
+# --- in-run schema self-check ----------------------------------------------
+
+def test_validate_report_accepts_a_real_report():
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    report = ecc.build_report(params, measured=None,
+                              ref=ecc.reference_estimate(1.1, "ada", "NF4"))
+    ok, validator, detail = ecc.validate_report(report)
+    assert ok is True, (validator, detail)
+
+
+def test_validate_report_rejects_a_broken_report():
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    report = ecc.build_report(params, measured=None,
+                              ref=ecc.reference_estimate(1.1, "ada", "NF4"))
+    del report["results"]["basis"]
+    assert ecc.validate_report(report)[0] is False
+
+
+def test_builtin_checker_matches_jsonschema_on_the_examples():
+    """The dependency-free fallback must agree with jsonschema, since the runtime
+    image ships without jsonschema and still reports 'schema: valid'."""
+    for name in ("energy.no-gpu.json", "energy.measured.illustrative.json"):
+        report = json.loads((REPO / "examples" / name).read_text())
+        assert ecc._check_against_schema(report, SCHEMA) == []
+    bad = json.loads((REPO / "examples" / "energy.no-gpu.json").read_text())
+    bad["scenario"] = "Server"                     # not in the schema's enum
+    assert ecc._check_against_schema(bad, SCHEMA)
+    bad2 = json.loads((REPO / "examples" / "energy.no-gpu.json").read_text())
+    bad2["system_under_test"]["accelerator_count"] = 0     # below minimum
+    assert ecc._check_against_schema(bad2, SCHEMA)

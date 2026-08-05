@@ -1,0 +1,71 @@
+name: Publish image
+
+# Publishes the runtime image so reproducing a measurement is one `docker run`
+# instead of a local CUDA/torch build. GitHub-hosted runners have no GPU, so this
+# job only builds and pushes; the measurement path is exercised on real hardware.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The CUDA + torch image is ~10 GB; the default runner image leaves too
+      # little room, so drop the toolchains this build never uses.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/local/.ghcup
+          df -h /
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=0.1.0,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test the published image (no GPU on the runner)
+        run: |
+          mkdir -p out
+          docker run --rm -v "$PWD/out:/workspace/outputs" \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest energy_estimate \
+            --dry_run --gpu_arch ada --params_b 1.1 --output_dir /workspace/outputs
+          python3 -c "
+          import json
+          r = json.load(open('out/energy.json'))
+          assert r['results']['basis'] != 'measured', r
+          print('image OK:', r['results'])"

@@ -14,7 +14,56 @@ is reproducible on any CUDA GPU.
 > run.** There is no accuracy target and no LoadGen. Numbers produced here are
 > **not certified benchmark results**.
 
-## Quick start
+## Quick start — one command, no configuration
+
+On any host with Docker, an NVIDIA GPU and the
+[container toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hongping-zh/ecocompute-mlcube/main/quickstart.sh | bash
+```
+
+That pulls the prebuilt image, measures **NF4 and its own FP16 baseline** on
+TinyLlama-1.1B, writes a schema-validated `energy.json` into `./ecocompute-out/`,
+and prints a link that overlays your point on the published curve. Typical first
+run is well under 15 minutes (image pull + ~2 GB model download dominate; the
+measurement itself is a few minutes), and later runs reuse both caches.
+
+No flags are needed: `gpu_arch` defaults to `auto` and is derived from the NVML
+device name, so a run cannot silently label an RTX 4090 as Blackwell. Nothing is
+installed on the host except the image. If you would rather read the script
+first, it is [`quickstart.sh`](quickstart.sh) — 100 lines, and it prints every
+`docker` command it runs.
+
+Common overrides (all optional):
+
+```bash
+ECOCOMPUTE_PRECISION=INT8 \
+ECOCOMPUTE_MODEL=Qwen/Qwen2.5-3B ECOCOMPUTE_PARAMS_B=3 \
+ECOCOMPUTE_ITERATIONS=10 \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/hongping-zh/ecocompute-mlcube/main/quickstart.sh)"
+```
+
+Or drive the image yourself:
+
+```bash
+docker run --rm --gpus all \
+  -v "$PWD/out:/workspace/outputs" \
+  ghcr.io/hongping-zh/ecocompute-mlcube:latest energy_estimate \
+  --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 --params_b 1.1 \
+  --precision NF4 --gpu_arch auto --output_dir /workspace/outputs --share
+```
+
+Then publish the report — agreeing or disagreeing — at
+[quantenergy.tech/replications](https://quantenergy.tech/replications/#submit).
+
+The image is built and pushed by
+[`.github/workflows/publish-image.yml`](.github/workflows/publish-image.yml) on
+every merge to `main`. If the pull is denied (the GHCR package is not public
+yet, or you are offline), `quickstart.sh` says so and builds the image from this
+repository instead — same result, ~10–20 minutes longer.
+
+### Running from source
 
 No GPU needed for a smoke test — the container falls back to a dataset-derived
 reference report (clearly flagged, never a fabricated measurement).
@@ -55,7 +104,7 @@ block or change the measurement:
 ```bash
 python3 entrypoint.py energy_estimate \
     --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
-    --precision NF4 --gpu_arch blackwell --params_b 1.1 \
+    --precision NF4 --gpu_arch auto --params_b 1.1 \
     --output_dir workspace/outputs --prefetch --share
 ```
 
@@ -85,7 +134,9 @@ ecocompute-mlcube/
 ├── schema/energy.schema.json   # JSON Schema for the report (energy fields)
 ├── examples/            # sample energy.json outputs (no-GPU + measured), schema-valid
 ├── tests/               # pytest: schema validity, param passing, no-GPU honesty
-├── .github/workflows/mlcube-verify.yml   # CI: pytest + build + mlcube-style run + schema check
+├── quickstart.sh        # zero-config one-liner: pull → run → validate → share link
+├── .github/workflows/ci.yml             # CI: pytest + shellcheck + CPU image + schema check
+├── .github/workflows/publish-image.yml  # builds and pushes ghcr.io/hongping-zh/ecocompute-mlcube
 ├── LICENSE / NOTICE     # Apache-2.0
 └── workspace/
     ├── parameters/energy_params.yaml   # run inputs (mirror of /v1/estimate)
@@ -144,7 +195,7 @@ python3 entrypoint.py energy_estimate --dry_run \
 | `params_b` | billions of parameters (used by the no-GPU reference path) |
 | `precision` | `FP16` \| `NF4` \| `INT8` (weight-only quantization) |
 | `batch_size` | `1` → SingleStream scenario; `>1` → Offline |
-| `gpu_arch` | `turing` \| `ada` \| `blackwell` \| `ampere` (or a GPU name) |
+| `gpu_arch` | `auto` (default — from the NVML device name) \| `turing` \| `ampere` \| `ada` \| `hopper` \| `blackwell` \| a GPU name |
 | `tokens`, `iterations`, `warmup`, `sample_rate_hz` | measurement controls |
 
 ### Output (`energy.json`)

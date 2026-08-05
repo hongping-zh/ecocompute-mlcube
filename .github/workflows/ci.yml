@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: contract tests (no GPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q tests
+      - name: shellcheck quickstart.sh
+        run: sudo apt-get update && sudo apt-get install -y shellcheck && shellcheck quickstart.sh
+
+  cpu-image:
+    name: CPU image + MLCube contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the CPU verification image
+        run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu .
+      # No GPU on the runner, so this exercises the container contract (mounts,
+      # parameters, report shape) and asserts the report is honest about it:
+      # basis must not be "measured" when nothing was measured.
+      - name: Run the task and check the report
+        run: |
+          mkdir -p out
+          docker run --rm -v "$PWD/out:/workspace/outputs" \
+            ecocompute/mlcube-energy:cpu energy_estimate \
+            --gpu_arch ada --params_b 1.1 --output_dir /workspace/outputs
+          python3 - <<'PY'
+          import json, sys
+          r = json.load(open("out/energy.json"))
+          assert r["certified_benchmark_result"] is False, r
+          assert r["results"]["basis"] != "measured", r["results"]
+          print("report OK:", r["results"])
+          PY
+      - name: Validate against the schema
+        run: |
+          pip install "jsonschema>=4.0"
+          python3 -c "
+          import json, jsonschema
+          jsonschema.validate(json.load(open('out/energy.json')),
+                              json.load(open('schema/energy.schema.json')))
+          print('schema OK')"

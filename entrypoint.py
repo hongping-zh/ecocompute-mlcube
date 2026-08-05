@@ -21,7 +21,7 @@ Usage (direct, for development):
     python3 entrypoint.py run --parameters_file workspace/parameters/energy_params.yaml \
                               --output_dir workspace/outputs
     python3 entrypoint.py run --model_name TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
-                              --precision NF4 --batch_size 1 --gpu_arch blackwell \
+                              --precision NF4 --batch_size 1 --gpu_arch auto \
                               --output_dir workspace/outputs
 """
 import argparse
@@ -29,6 +29,7 @@ import datetime
 import json
 import os
 import platform
+import re
 import sys
 import threading
 import time
@@ -73,6 +74,20 @@ ARCH_ALIASES = {
     "a100": "ampere", "a800": "ampere", "ampere": "ampere",
 }
 
+# NVML product name -> architecture class, so `gpu_arch: auto` needs no flag from
+# the user. First match wins, so specific cards precede the generic families
+# (A100 before "RTX A6000", L40S before the RTX 40-series pattern). An unknown
+# card yields None: the report then carries the raw NVML name and no fitted
+# curve is claimed for it, which is the honest outcome.
+ARCH_PATTERNS = [
+    (r"\b(b100|b200|gb\d{3}|rtx\s*50\d0)\b",                      "blackwell"),
+    (r"\b(h100|h200|h800|gh200)\b",                                "hopper"),
+    (r"\b(l4|l40s?|ada)\b|\brtx\s*(40\d0|(?:2000|4000|5000|6000)\s*ada)\b", "ada"),
+    (r"\b(a100|a800|a10g?|a16|a2|a30|a40)\b|\brtx\s*(a\d{4}|30\d0)\b",      "ampere"),
+    (r"\b(t4|t400|t600|t1000)\b|\b(quadro|titan)\s*rtx\b|\brtx\s*20\d0\b",  "turing"),
+    (r"\bv100\b|\btitan\s*v\b",                                    "volta"),
+]
+
 
 def norm_arch(s):
     if not s:
@@ -82,6 +97,34 @@ def norm_arch(s):
         if k in s:
             return v
     return s if s in REFERENCE["fp16_energy"] else None
+
+
+def detect_arch(gpu_name):
+    """Architecture class implied by an NVML product name, or None if unrecognised."""
+    if not gpu_name:
+        return None
+    s = re.sub(r"[-_]+", " ", str(gpu_name).lower())
+    s = re.sub(r"\b(nvidia|geforce|tesla)\b", " ", s)
+    for pattern, arch in ARCH_PATTERNS:
+        if re.search(pattern, s):
+            return arch
+    return None
+
+
+def probe_gpu_name():
+    """NVML product name of device 0, or None when NVML/driver is unavailable."""
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        try:
+            return _nvml_gpu_name(pynvml, pynvml.nvmlDeviceGetHandleByIndex(0))
+        finally:
+            try:
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
+    except Exception:
+        return None
 
 
 def _interp_loglog(anchors, N):
@@ -408,6 +451,73 @@ def load_params(args):
     return p
 
 
+# ------------------------------------------------------------------ validation --
+SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "schema", "energy.schema.json")
+
+_JSON_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool,
+               "integer": int, "number": (int, float), "null": type(None)}
+
+
+def _check_against_schema(node, schema, path=""):
+    """Minimal draft-07 subset check (required / type / enum / const / minimum).
+
+    Only used when the `jsonschema` package is absent, so the runtime image does
+    not have to carry it: the report is still verified before we tell the user it
+    is schema-valid, just with a checker covering exactly the constructs
+    schema/energy.schema.json uses.
+    """
+    errors = []
+    types = schema.get("type")
+    if types:
+        names = [types] if isinstance(types, str) else list(types)
+        allowed = []
+        for name in names:
+            t = _JSON_TYPES.get(name)
+            allowed.extend(t if isinstance(t, tuple) else [t] if t else [])
+        allowed = tuple(allowed)
+        # bool is a subclass of int in Python; JSON Schema treats them as distinct.
+        if not isinstance(node, allowed) or (isinstance(node, bool) and bool not in allowed):
+            return ["%s: expected %s, got %s" % (path or "<root>", types, type(node).__name__)]
+    if "const" in schema and node != schema["const"]:
+        errors.append("%s: must be %r, got %r" % (path, schema["const"], node))
+    if "enum" in schema and node not in schema["enum"]:
+        errors.append("%s: %r not in %s" % (path, node, schema["enum"]))
+    if "minimum" in schema and isinstance(node, (int, float)) and node < schema["minimum"]:
+        errors.append("%s: %s below minimum %s" % (path, node, schema["minimum"]))
+    if isinstance(node, dict):
+        for key in schema.get("required", []):
+            if key not in node:
+                errors.append("%s: missing required field '%s'" % (path or "<root>", key))
+        for key, sub in schema.get("properties", {}).items():
+            if key in node:
+                errors += _check_against_schema(node[key], sub,
+                                                "%s.%s" % (path, key) if path else key)
+    return errors
+
+
+def validate_report(report, schema_path=SCHEMA_PATH):
+    """Check the report against the shipped schema -> (ok, validator, detail).
+
+    ok is None when the schema file is not available next to the entrypoint.
+    """
+    try:
+        with open(schema_path) as f:
+            schema = json.load(f)
+    except Exception as e:
+        return None, "none", "schema unavailable (%s)" % e
+    try:
+        import jsonschema
+    except ImportError:
+        errors = _check_against_schema(report, schema)
+        return (not errors), "builtin", "; ".join(errors[:4])
+    try:
+        jsonschema.validate(report, schema)
+    except jsonschema.ValidationError as e:
+        return False, "jsonschema", e.message
+    return True, "jsonschema", ""
+
+
 def gpu_available():
     try:
         import pynvml  # noqa: F401
@@ -417,9 +527,32 @@ def gpu_available():
         return False
 
 
+def resolve_arch(p):
+    """Fill in `gpu_arch` when it is missing or "auto" by asking NVML which card
+    this is, so a zero-flag run cannot mislabel the architecture. An explicit
+    value always wins, and an unrecognised card is recorded by its NVML name
+    rather than guessed into a family."""
+    requested = str(p.get("gpu_arch") or "").strip()
+    if requested and requested.lower() != "auto":
+        return
+    name = probe_gpu_name()
+    detected = detect_arch(name)
+    if detected:
+        p["gpu_arch"] = detected
+        print("[ecocompute-mlcube] gpu_arch=auto -> '%s' (NVML device name: %s)"
+              % (detected, name))
+        return
+    p["gpu_arch"] = name or "unknown"
+    print("[ecocompute-mlcube] gpu_arch=auto could not be mapped to a known "
+          "architecture (NVML name: %s). The measurement itself is unaffected; "
+          "pass --gpu_arch to compare it against a fitted curve."
+          % (name or "unavailable"), file=sys.stderr)
+
+
 def run(args):
     p = load_params(args)
     os.makedirs(args.output_dir, exist_ok=True)
+    resolve_arch(p)
     arch = norm_arch(p["gpu_arch"])
     if getattr(args, "prefetch", False):
         prefetch_prediction(getattr(args, "api_base", DEFAULT_API_BASE),
@@ -459,6 +592,16 @@ def run(args):
     with open(out, "w") as f:
         json.dump(report, f, indent=2)
     print(f"[ecocompute-mlcube] wrote {out} (source={report['measurement_source']})")
+
+    ok, validator, detail = validate_report(report)
+    if ok:
+        print("[ecocompute-mlcube] schema: valid (%s, checked with %s)"
+              % (report["schema_version"], validator))
+    elif ok is None:
+        print("[ecocompute-mlcube] schema: not checked - %s" % detail, file=sys.stderr)
+    else:
+        print("[ecocompute-mlcube] schema: INVALID (%s) - %s" % (validator, detail),
+              file=sys.stderr)
     if getattr(args, "share", False):
         if link:
             with open(os.path.join(args.output_dir, "share_url.txt"), "w") as f:
@@ -473,7 +616,6 @@ def run(args):
 
 
 def _guess_params(model_name):
-    import re
     m = re.search(r"(\d+(?:\.\d+)?)\s*[bB]\b", model_name or "")
     return float(m.group(1)) if m else 1.1
 
@@ -557,7 +699,10 @@ def _add_run_args(parser):
     parser.add_argument("--model_name", default=None)
     parser.add_argument("--model", default=None, help="alias for --model_name")
     parser.add_argument("--precision", default=None, choices=[None, "FP16", "NF4", "INT8"])
-    parser.add_argument("--gpu_arch", default=None)
+    parser.add_argument("--gpu_arch", default=None,
+                       help="turing | ampere | ada | hopper | blackwell, or "
+                            "'auto' (default in the shipped parameters) to "
+                            "detect it from the NVML device name")
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--params_b", type=float, default=None)
     parser.add_argument("--tokens", type=int, default=None)

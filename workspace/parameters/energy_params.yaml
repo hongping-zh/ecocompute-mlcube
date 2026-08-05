@@ -5,7 +5,8 @@ model_name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 params_b: 1.1              # billions of parameters (used for the no-GPU reference path)
 precision: "NF4"          # FP16 | NF4 | INT8
 batch_size: 1             # 1 -> SingleStream scenario; >1 -> Offline
-gpu_arch: "blackwell"     # turing | ada | blackwell | ampere (or a GPU name, e.g. "RTX 5090")
+gpu_arch: "auto"          # auto -> detected from the NVML device name; or set
+                          # turing | ampere | ada | hopper | blackwell explicitly
 context_length: 2048
 tokens: 256               # new tokens generated per run
 iterations: 10            # measured decode runs
