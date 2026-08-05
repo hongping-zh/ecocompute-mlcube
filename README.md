@@ -57,11 +57,16 @@ docker run --rm --gpus all \
 Then publish the report — agreeing or disagreeing — at
 [quantenergy.tech/replications](https://quantenergy.tech/replications/#submit).
 
-The image is built and pushed by
+The image (~8.8 GB unpacked: CUDA 12.1 runtime + torch + transformers +
+bitsandbytes) is built and pushed by
 [`.github/workflows/publish-image.yml`](.github/workflows/publish-image.yml) on
-every merge to `main`. If the pull is denied (the GHCR package is not public
-yet, or you are offline), `quickstart.sh` says so and builds the image from this
-repository instead — same result, ~10–20 minutes longer.
+every merge to `main`, and `docker pull ghcr.io/hongping-zh/ecocompute-mlcube:latest`
+works anonymously. If the pull fails anyway (offline, registry down),
+`quickstart.sh` says so and falls back to a local copy or a build from this
+repository — same result, ~10–20 minutes longer. If Docker cannot start the
+container with `--gpus all`, the script retries without GPU access so the
+pipeline still gets verified, and both the report (`basis` ≠ `measured`) and the
+printed summary say it is not a measurement.
 
 ### Running from source
 

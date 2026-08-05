@@ -70,21 +70,36 @@ fi
 # ----------------------------------------------------------------- measure --
 say "measuring $PRECISION vs FP16 on $MODEL ($ITERATIONS decode iterations each)"
 say "first run also downloads the model into $CACHE"
-docker run --rm "${GPU_ARGS[@]}" \
-  --user "$(id -u):$(id -g)" \
-  -e HOME=/workspace/models/.hf \
-  -e HF_HOME=/workspace/models/.hf \
-  -v "$OUT:/workspace/outputs" \
-  -v "$CACHE:/workspace/models/.hf" \
-  "$IMAGE" energy_estimate \
-    --model "$MODEL" \
-    --params_b "$PARAMS_B" \
-    --precision "$PRECISION" \
-    --gpu_arch auto \
-    --iterations "$ITERATIONS" \
-    --warmup 1 \
-    --output_dir /workspace/outputs \
-    --share
+measure() {
+  docker run --rm "$@" \
+    --user "$(id -u):$(id -g)" \
+    -e HOME=/workspace/models/.hf \
+    -e HF_HOME=/workspace/models/.hf \
+    -v "$OUT:/workspace/outputs" \
+    -v "$CACHE:/workspace/models/.hf" \
+    "$IMAGE" energy_estimate \
+      --model "$MODEL" \
+      --params_b "$PARAMS_B" \
+      --precision "$PRECISION" \
+      --gpu_arch auto \
+      --iterations "$ITERATIONS" \
+      --warmup 1 \
+      --output_dir /workspace/outputs \
+      --share
+}
+
+if ! measure "${GPU_ARGS[@]}"; then
+  # Typically "could not select device driver with capabilities: [[gpu]]" - no
+  # driver or no container toolkit. Retry without GPU access so the run still
+  # produces a report and the pipeline is verified, but the report will carry
+  # basis != "measured" and the summary below says so.
+  if [ "${#GPU_ARGS[@]}" -gt 0 ]; then
+    warn "docker could not start the container with GPU access. Retrying WITHOUT it: the pipeline gets verified, but the result will be dataset-derived, not a measurement."
+    measure
+  else
+    die "the container failed to start; see the docker error above."
+  fi
+fi
 
 REPORT="$OUT/energy.json"
 [ -f "$REPORT" ] || die "the run finished without writing $REPORT."
