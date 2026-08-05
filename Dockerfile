@@ -30,6 +30,8 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /workspace
 COPY entrypoint.py /workspace/entrypoint.py
 COPY workspace/parameters /workspace/parameters
+# Shipped so every run can self-check its report before claiming schema validity.
+COPY schema /workspace/schema
 
 ENTRYPOINT ["python3", "/workspace/entrypoint.py"]
 CMD ["energy_estimate"]
