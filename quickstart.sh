@@ -19,7 +19,7 @@
 #   ECOCOMPUTE_MODEL       HF model id      (default TinyLlama/TinyLlama-1.1B-Chat-v1.0)
 #   ECOCOMPUTE_PARAMS_B    size in billions (default 1.1 - must match the model)
 #   ECOCOMPUTE_PRECISION   NF4 | INT8       (default NF4; FP16 is always measured too)
-#   ECOCOMPUTE_ITERATIONS  decode runs      (default 5; the published dataset used 10)
+#   ECOCOMPUTE_ITERATIONS  decode runs      (default 10, as in the published dataset)
 #   ECOCOMPUTE_IMAGE       image ref        (default ghcr.io/hongping-zh/ecocompute-mlcube:latest)
 #   ECOCOMPUTE_OUT         output directory (default ./ecocompute-out)
 #   ECOCOMPUTE_GPU_ARGS    docker GPU flags (default "--gpus all"; e.g. --gpus "device=1")
@@ -32,7 +32,7 @@ IMAGE="${ECOCOMPUTE_IMAGE:-ghcr.io/hongping-zh/ecocompute-mlcube:latest}"
 MODEL="${ECOCOMPUTE_MODEL:-TinyLlama/TinyLlama-1.1B-Chat-v1.0}"
 PARAMS_B="${ECOCOMPUTE_PARAMS_B:-1.1}"
 PRECISION="${ECOCOMPUTE_PRECISION:-NF4}"
-ITERATIONS="${ECOCOMPUTE_ITERATIONS:-5}"
+ITERATIONS="${ECOCOMPUTE_ITERATIONS:-10}"
 OUT="${ECOCOMPUTE_OUT:-$PWD/ecocompute-out}"
 read -r -a GPU_ARGS <<< "${ECOCOMPUTE_GPU_ARGS---gpus all}"
 CACHE="${ECOCOMPUTE_CACHE:-$HOME/.cache/ecocompute-hf}"
@@ -127,7 +127,7 @@ if [ "$MODE" = native ]; then
     --precision "$PRECISION" \
     --gpu_arch auto \
     --iterations "$ITERATIONS" \
-    --warmup 1 \
+    --warmup 2 \
     --output_dir "$OUT" \
     --share
   summarize
@@ -173,7 +173,7 @@ measure() {
       --precision "$PRECISION" \
       --gpu_arch auto \
       --iterations "$ITERATIONS" \
-      --warmup 1 \
+      --warmup 2 \
       --output_dir /workspace/outputs \
       --share
 }

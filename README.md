@@ -24,10 +24,17 @@ curl -fsSL https://raw.githubusercontent.com/hongping-zh/ecocompute-mlcube/main/
 
 That measures **NF4 and its own FP16 baseline** on TinyLlama-1.1B, writes a
 schema-validated `energy.json` into `./ecocompute-out/`, and prints a link that
-overlays your point on the published curve. Typical first run is well under 15
-minutes (the ~2 GB model download and the one-time image pull or dependency
-install dominate; the measurement itself is a few minutes), and later runs reuse
-the caches.
+overlays your point on the published curve.
+
+**How long it takes** is dominated by downloads, not by the measurement (a few
+minutes), and later runs reuse the caches. The one end-to-end run we have timed
+is the honest number to plan around: **57 minutes** on a China-hosted rented
+RTX 4090 in native mode, of which the ~2 GB model download was 5.5 minutes and
+nearly all the rest was pulling ~3 GB of torch/CUDA wheels from
+`download.pytorch.org`. Since then `autodl/00_setup.sh` prefers the configured
+(domestic) index for torch, which should cut most of that, but we have not
+re-timed it. On a machine with fast registry access the docker path has less to
+download; we have not timed it either.
 
 The script picks how to run itself, and says which it picked:
 
@@ -37,7 +44,10 @@ The script picks how to run itself, and says which it picked:
 | **native** | no usable Docker — rented GPU instances (AutoDL, vast.ai, …) are themselves containers and cannot nest one | clones this repo and installs into a venv, reusing the host's CUDA PyTorch; keeps the checkout, venv and model cache on the data disk when there is one |
 
 Force either with `ECOCOMPUTE_MODE=docker` / `ECOCOMPUTE_MODE=native`. Both paths
-run the same `entrypoint.py` and produce the same report.
+run the same `entrypoint.py`, the same pins from `requirements.txt` (native
+installs everything except torch, which must match the host driver) and the same
+10 decode iterations after 2 warmups as the published dataset — a result from one
+path is comparable with a result from the other, and with the dataset.
 
 No flags are needed: `gpu_arch` defaults to `auto` and is derived from the NVML
 device name, so a run cannot silently label an RTX 4090 as Blackwell. If you
@@ -49,7 +59,6 @@ Common overrides (all optional):
 ```bash
 ECOCOMPUTE_PRECISION=INT8 \
 ECOCOMPUTE_MODEL=Qwen/Qwen2.5-3B ECOCOMPUTE_PARAMS_B=3 \
-ECOCOMPUTE_ITERATIONS=10 \
   bash -c "$(curl -fsSL https://raw.githubusercontent.com/hongping-zh/ecocompute-mlcube/main/quickstart.sh)"
 ```
 
