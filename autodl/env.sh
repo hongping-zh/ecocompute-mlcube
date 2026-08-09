@@ -50,6 +50,15 @@ export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}"
 export RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/autodl/results}"
 mkdir -p "$HF_HOME" "$RESULTS_DIR"
 
+# --- PyPI access from China -------------------------------------------------
+# pypi.org is slow-to-unusable on AutoDL, and torch pulls ~3GB of wheels. Point
+# pip at a domestic mirror, but never override a mirror the host already
+# configured (AutoDL images usually ship one in /etc/pip.conf).
+if [ -z "${PIP_INDEX_URL:-}" ] && [ -d /root/autodl-tmp ] \
+   && ! python3 -m pip config get global.index-url >/dev/null 2>&1; then
+  export PIP_INDEX_URL="${ECO_PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple/}"
+fi
+
 # --- Hugging Face access from China ----------------------------------------
 # huggingface.co is often unreachable on AutoDL; hf-mirror.com is a full mirror.
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"

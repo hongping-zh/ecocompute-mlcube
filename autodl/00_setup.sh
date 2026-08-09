@@ -54,25 +54,47 @@ if python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)"
   echo "[setup] usable CUDA PyTorch already present:"
   python -c "import torch; print('   torch', torch.__version__, 'cuda', torch.version.cuda, 'device', torch.cuda.get_device_name(0))"
 else
-  echo "[setup] no CUDA-enabled torch found — installing cu121 torch"
+  echo "[setup] no CUDA-enabled torch found — installing torch"
   # Only torch is needed (entrypoint.py doesn't use torchvision/torchaudio);
   # skipping them saves ~1GB of disk and download time.
-  python -m pip install --index-url https://download.pytorch.org/whl/cu121 torch
+  #
+  # Prefer the configured index (a domestic mirror on AutoDL, see env.sh): the
+  # linux wheels on PyPI are CUDA builds too, and download.pytorch.org from
+  # China is the single slowest step of a first run - it dominated a measured
+  # 57-minute end-to-end run. Fall back to the cu121 index if that fails or
+  # yields a CPU-only build.
+  python -m pip install torch || true
+  if ! python -c "import torch,sys; sys.exit(0 if torch.version.cuda else 1)" 2>/dev/null; then
+    echo "[setup] no CUDA build from the default index — falling back to download.pytorch.org/cu121"
+    python -m pip install --index-url https://download.pytorch.org/whl/cu121 --force-reinstall torch
+  fi
 fi
 
 echo
 echo "=== [4/5] Runtime deps ==================================================="
-# transformers/accelerate/bitsandbytes track the installed torch. nvidia-ml-py
-# gives NVML power sampling; hf_transfer speeds up mirror downloads.
-python -m pip install \
-  "transformers>=4.44" \
-  "accelerate>=0.33" \
-  "bitsandbytes>=0.43.3" \
-  "nvidia-ml-py>=12.560" \
-  "sentencepiece>=0.2.0" \
-  "pyyaml>=6.0.1" \
-  "hf_transfer>=0.1.6" \
-  "huggingface_hub[cli]>=0.24"
+# Use the same pins as the published image (requirements.txt) minus torch, which
+# has to match the host driver: bitsandbytes' NF4/INT8 kernels change between
+# releases, so an unpinned install here would make results from this path and
+# from the image not comparable. Fall back to ranges if the pins cannot resolve
+# against the host's torch.
+EXTRAS=("hf_transfer>=0.1.6" "huggingface_hub[cli]>=0.24")
+REQ="$REPO_DIR/requirements.txt"
+PINNED="$TMPDIR/requirements.no-torch.txt"
+if [ -f "$REQ" ] && grep -v '^[[:space:]]*#' "$REQ" | grep -v '^torch==' > "$PINNED" \
+   && python -m pip install -r "$PINNED" "${EXTRAS[@]}"; then
+  echo "[setup] installed the published pins (requirements.txt, torch excluded)"
+else
+  echo "!! could not install the published pins — falling back to version ranges."
+  echo "!! results stay valid, but the quantization kernels may differ from the image's."
+  python -m pip install \
+    "transformers>=4.44" \
+    "accelerate>=0.33" \
+    "bitsandbytes>=0.43.3" \
+    "nvidia-ml-py>=12.560" \
+    "sentencepiece>=0.2.0" \
+    "pyyaml>=6.0.1" \
+    "${EXTRAS[@]}"
+fi
 echo "[setup] installed:"
 python - <<'PY'
 import importlib.metadata as m
