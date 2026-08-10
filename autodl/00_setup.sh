@@ -80,12 +80,34 @@ echo "=== [4/5] Runtime deps ===================================================
 EXTRAS=("hf_transfer>=0.1.6" "huggingface_hub[cli]>=0.24")
 REQ="$REPO_DIR/requirements.txt"
 PINNED="$TMPDIR/requirements.no-torch.txt"
-if [ -f "$REQ" ] && grep -v '^[[:space:]]*#' "$REQ" | grep -v '^torch==' > "$PINNED" \
-   && python -m pip install -r "$PINNED" "${EXTRAS[@]}"; then
+PINS_OK=0
+if [ -f "$REQ" ] && grep -v '^[[:space:]]*#' "$REQ" | grep -v '^torch==' > "$PINNED"; then
+  if python -m pip install -r "$PINNED" "${EXTRAS[@]}"; then
+    PINS_OK=1
+  # A domestic mirror can lag behind PyPI by weeks; retry upstream once before
+  # giving up on the pins, unless the interpreter is simply too old for them.
+  elif python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' \
+       && [ "${PIP_INDEX_URL:-}" != "" ]; then
+    echo "[setup] pins not available on $PIP_INDEX_URL — retrying upstream PyPI"
+    python -m pip install --index-url https://pypi.org/simple \
+      -r "$PINNED" "${EXTRAS[@]}" && PINS_OK=1
+  fi
+fi
+if [ "$PINS_OK" = "1" ]; then
   echo "[setup] installed the published pins (requirements.txt, torch excluded)"
 else
   echo "!! could not install the published pins — falling back to version ranges."
-  echo "!! results stay valid, but the quantization kernels may differ from the image's."
+  echo "!! results stay valid and are still real measurements, but the quantization"
+  echo "!! kernels may differ from the image's, so vs_fp16 is not directly comparable."
+  echo "!! energy.json records the versions actually used (software.packages)."
+  if ! python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'; then
+    PYV="$(python -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+    echo "!! reason: this venv is Python $PYV; the pinned transformers needs >= 3.9."
+    echo "!! to match the image, recreate the venv on a >= 3.9 interpreter you have:"
+    echo "!!   rm -rf $VENV_DIR"
+    echo "!!   ECO_PYTHON=python3.10 bash $HERE/00_setup.sh"
+    echo "!! (that also has to reinstall torch — the preinstalled one is $PYV-only.)"
+  fi
   python -m pip install \
     "transformers>=4.44" \
     "accelerate>=0.33" \

@@ -127,6 +127,91 @@ def probe_gpu_name():
         return None
 
 
+def reference_pins():
+    """The published pins (requirements.txt), as {package: version}."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
+    pins = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.split("#", 1)[0].strip()
+                if "==" in line:
+                    name, version = line.split("==", 1)
+                    pins[name.strip().lower()] = version.strip()
+    except OSError:
+        pass
+    return pins
+
+
+def _pkg_version(name):
+    try:
+        import importlib.metadata as md
+        return md.version(name)
+    except Exception:
+        return None
+
+
+def collect_software(compare_pins=True):
+    """Versions the measurement actually ran on, and how they differ from the pins.
+
+    Quantization kernels change between bitsandbytes/transformers releases, so a
+    report is only comparable with another one if these match. Recording them
+    makes that checkable by the reader instead of trusted from the installer.
+
+    ``compare_pins`` is off for dataset-derived reports: nothing was executed
+    there, so a pin diff would describe an environment that ran no kernels.
+    """
+    versions = {name: _pkg_version(name) for name in
+                ("torch", "transformers", "bitsandbytes", "accelerate",
+                 "nvidia-ml-py", "sentencepiece")}
+    software = {
+        "python": platform.python_version(),
+        "packages": {k: v for k, v in versions.items() if v},
+    }
+    try:
+        import torch
+        software["torch_cuda"] = torch.version.cuda
+    except Exception:
+        pass
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        try:
+            driver = pynvml.nvmlSystemGetDriverVersion()
+            software["nvidia_driver"] = driver.decode() if isinstance(driver, bytes) else str(driver)
+        finally:
+            try:
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    if not compare_pins:
+        return software
+
+    pins = reference_pins()
+    # torch is deliberately not pinned outside the image: it has to match the
+    # host driver/CUDA. Everything else should equal the published pins.
+    compared = {name: pins[name] for name in versions if name in pins and name != "torch"}
+    differs = sorted(
+        "%s %s != %s" % (name, versions.get(name) or "missing", pinned)
+        for name, pinned in compared.items()
+        if versions.get(name) != pinned
+    )
+    if compared:
+        software["reference_pins"] = compared
+        software["matches_reference_pins"] = not differs
+        if differs:
+            software["differs_from_reference_pins"] = differs
+            software["comparability_note"] = (
+                "This run did not use the published pins; bitsandbytes/transformers "
+                "quantization kernels change between releases, so vs_fp16_energy_pct "
+                "may not be directly comparable with reports produced by the image."
+            )
+    return software
+
+
 def _interp_loglog(anchors, N):
     import math
     for n, e in anchors:
@@ -373,7 +458,13 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None):
             "sample_rate_hz": int(p.get("sample_rate_hz", 10)),
             "tokens_per_run": int(p.get("tokens", 256)),
             "iterations": int(p.get("iterations", 10)),
+            "warmup": int(p.get("warmup", 2)),
+            "iterations_note": (
+                "Decode iterations within one run, not independent trials: a single "
+                "report is n=1 however high this is."
+            ),
         },
+        "software": collect_software(compare_pins=bool(measured)),
         "provenance": {
             "tool": "https://quantenergy.tech",
             "dataset_doi": "10.5281/zenodo.21066652",
@@ -460,7 +551,8 @@ _JSON_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool,
 
 
 def _check_against_schema(node, schema, path=""):
-    """Minimal draft-07 subset check (required / type / enum / const / minimum).
+    """Minimal draft-07 subset check (required/type/enum/const/minimum/items/
+    additionalProperties).
 
     Only used when the `jsonschema` package is absent, so the runtime image does
     not have to carry it: the report is still verified before we tell the user it
@@ -489,10 +581,20 @@ def _check_against_schema(node, schema, path=""):
         for key in schema.get("required", []):
             if key not in node:
                 errors.append("%s: missing required field '%s'" % (path or "<root>", key))
-        for key, sub in schema.get("properties", {}).items():
+        properties = schema.get("properties", {})
+        for key, sub in properties.items():
             if key in node:
                 errors += _check_against_schema(node[key], sub,
                                                 "%s.%s" % (path, key) if path else key)
+        extra = schema.get("additionalProperties")
+        if isinstance(extra, dict):
+            for key, value in node.items():
+                if key not in properties:
+                    errors += _check_against_schema(value, extra,
+                                                    "%s.%s" % (path, key) if path else key)
+    if isinstance(node, list) and isinstance(schema.get("items"), dict):
+        for i, value in enumerate(node):
+            errors += _check_against_schema(value, schema["items"], "%s[%d]" % (path, i))
     return errors
 
 
@@ -592,6 +694,14 @@ def run(args):
     with open(out, "w") as f:
         json.dump(report, f, indent=2)
     print(f"[ecocompute-mlcube] wrote {out} (source={report['measurement_source']})")
+
+    differs = report.get("software", {}).get("differs_from_reference_pins")
+    if differs and measured:
+        print("[ecocompute-mlcube] note: this run did not use the published pins (%s). "
+              "The measurement is real, but quantization kernels change between "
+              "releases, so treat vs_fp16 as not directly comparable with image runs. "
+              "The versions are recorded in the report."
+              % "; ".join(differs), file=sys.stderr)
 
     ok, validator, detail = validate_report(report)
     if ok:
