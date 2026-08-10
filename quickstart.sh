@@ -124,6 +124,15 @@ if [ "$MODE" = native ]; then
   # shellcheck disable=SC1091
   source "$SRC/autodl/env.sh"
   set -u
+  # Say this before the install, not after: the pins need python >= 3.9 and an
+  # existing venv can never change interpreter, so on AutoDL's 3.8 default the
+  # run is already destined to be flagged non-comparable.
+  if [ -x "$VENV_DIR/bin/python" ] \
+     && ! "$VENV_DIR/bin/python" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'; then
+    warn "$VENV_DIR is python $("$VENV_DIR/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])'), too old for the published pins (need >= 3.9)."
+    warn "the run still measures, but the report will say it is not comparable with image runs. To use the pins:"
+    warn "  rm -rf $VENV_DIR && ECO_PYTHON=/path/to/python3.10 SKIP_DOWNLOAD=1 bash $SRC/autodl/00_setup.sh"
+  fi
   say "installing dependencies (venv: $VENV_DIR) - a few minutes the first time"
   SKIP_DOWNLOAD=1 bash "$SRC/autodl/00_setup.sh"
   # shellcheck disable=SC1091

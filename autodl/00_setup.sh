@@ -37,12 +37,35 @@ fi
 echo
 echo "=== [2/5] Python venv (data disk) ========================================"
 PY="${ECO_PYTHON:-python3}"
+if [ -n "${ECO_PYTHON:-}" ] && ! command -v "$PY" >/dev/null 2>&1 && [ ! -x "$PY" ]; then
+  echo "!! ECO_PYTHON=$PY not found. Refusing to silently fall back to python3:"
+  echo "!! that is how a run ends up on the wrong interpreter and misses the pins."
+  exit 1
+fi
+py_version() { "$1" -c 'import sys; print("%d.%d" % sys.version_info[:2])'; }
+
 if [ ! -d "$VENV_DIR" ]; then
   # --system-site-packages: reuse AutoDL's preinstalled CUDA PyTorch.
   "$PY" -m venv --system-site-packages "$VENV_DIR"
-  echo "[setup] created venv at $VENV_DIR"
+  echo "[setup] created venv at $VENV_DIR (python $(py_version "$VENV_DIR/bin/python"))"
+elif [ -n "${ECO_PYTHON:-}" ] \
+     && [ "$(py_version "$VENV_DIR/bin/python")" != "$(py_version "$PY")" ]; then
+  # An existing venv keeps its interpreter forever, so honouring ECO_PYTHON here
+  # would be a lie: the run would silently continue on the old python.
+  echo "!! $VENV_DIR is python $(py_version "$VENV_DIR/bin/python"), but"
+  echo "!! ECO_PYTHON=$PY is python $(py_version "$PY"). A venv cannot change"
+  echo "!! interpreter — delete it first (this also reinstalls torch):"
+  echo "!!   rm -rf $VENV_DIR"
+  echo "!!   ECO_PYTHON=$PY SKIP_DOWNLOAD=1 bash $HERE/00_setup.sh"
+  echo "!! or set ECO_RECREATE_VENV=1 to have this script do it."
+  if [ "${ECO_RECREATE_VENV:-0}" != "1" ]; then
+    exit 1
+  fi
+  echo "[setup] ECO_RECREATE_VENV=1 — recreating the venv"
+  rm -rf "$VENV_DIR"
+  "$PY" -m venv --system-site-packages "$VENV_DIR"
 else
-  echo "[setup] reusing existing venv at $VENV_DIR"
+  echo "[setup] reusing existing venv at $VENV_DIR (python $(py_version "$VENV_DIR/bin/python"))"
 fi
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"

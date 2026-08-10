@@ -58,6 +58,20 @@ torch/CUDA, driver and package versions the run actually used, plus
 prints the same thing. A mismatched run is still a real measurement; it just is
 not directly comparable with a run from the image, and now says so itself.
 
+To get the pins on a host whose default python is too old, point `ECO_PYTHON` at
+a ≥3.9 interpreter. A venv cannot change interpreter after creation, so an
+existing one has to go (which also means reinstalling torch):
+
+```bash
+rm -rf /root/autodl-tmp/ecocompute/venv        # or: ECO_RECREATE_VENV=1
+ECO_PYTHON=/root/miniconda3/envs/eco310/bin/python \
+  SKIP_DOWNLOAD=1 bash autodl/00_setup.sh
+```
+
+`00_setup.sh` refuses to continue if `ECO_PYTHON` does not exist or disagrees
+with the venv it would otherwise reuse, rather than quietly running on the old
+interpreter and producing a report that is flagged non-comparable an hour later.
+
 No flags are needed: `gpu_arch` defaults to `auto` and is derived from the NVML
 device name, so a run cannot silently label an RTX 4090 as Blackwell. If you
 would rather read the script first, it is [`quickstart.sh`](quickstart.sh), and
