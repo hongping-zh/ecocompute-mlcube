@@ -32,9 +32,10 @@ is the honest number to plan around: **57 minutes** on a China-hosted rented
 RTX 4090 in native mode, of which the ~2 GB model download was 5.5 minutes and
 nearly all the rest was pulling ~3 GB of torch/CUDA wheels from
 `download.pytorch.org`. Since then `autodl/00_setup.sh` prefers the configured
-(domestic) index for torch, which should cut most of that, but we have not
-re-timed it. On a machine with fast registry access the docker path has less to
-download; we have not timed it either.
+(domestic) index for torch. A second run on that same instance, with every cache
+already warm, took **1m48s** end to end — that is the repeat-run number, not a
+first-run one. On a machine with fast registry access the docker path has less
+to download; we have not timed it.
 
 The script picks how to run itself, and says which it picked:
 
@@ -46,8 +47,16 @@ The script picks how to run itself, and says which it picked:
 Force either with `ECOCOMPUTE_MODE=docker` / `ECOCOMPUTE_MODE=native`. Both paths
 run the same `entrypoint.py`, the same pins from `requirements.txt` (native
 installs everything except torch, which must match the host driver) and the same
-10 decode iterations after 2 warmups as the published dataset — a result from one
-path is comparable with a result from the other, and with the dataset.
+10 decode iterations after 2 warmups as the published dataset.
+
+The native path cannot always get the pins — a Python 3.8 interpreter (AutoDL's
+default) or a lagging mirror can force older releases, and `bitsandbytes`
+NF4/INT8 kernels change between releases. So the report does not take the
+installer's word for it: `software` in every `energy.json` records the python,
+torch/CUDA, driver and package versions the run actually used, plus
+`matches_reference_pins` and a `differs_from_reference_pins` list. The summary
+prints the same thing. A mismatched run is still a real measurement; it just is
+not directly comparable with a run from the image, and now says so itself.
 
 No flags are needed: `gpu_arch` defaults to `auto` and is derived from the NVML
 device name, so a run cannot silently label an RTX 4090 as Blackwell. If you
@@ -227,7 +236,10 @@ Fields align with MLCommons-style inference energy reporting: total joules, toke
 `energy_per_token_mj` (= J / 1k tokens), `avg_power_watts`,
 `throughput_tokens_per_s`, plus a signed `vs_fp16_energy_pct` (negative = quantization
 saves energy). Every result carries a `basis` (`measured` / `interpolated` /
-`extrapolated`) and a `measurement_source`. See `schema/energy.schema.json`.
+`extrapolated`) and a `measurement_source`. `software` records the versions the
+run used and whether they are the published pins; `measurement.iterations` is
+decode iterations *within* one run, so a single report is n=1 no matter how high
+it is. See `schema/energy.schema.json`.
 
 ## Verified
 

@@ -40,7 +40,23 @@
         "method": {"type": "string"},
         "sample_rate_hz": {"type": "integer"},
         "tokens_per_run": {"type": "integer"},
-        "iterations": {"type": "integer"}
+        "iterations": {"type": "integer", "description": "decode iterations within this run; NOT a count of independent trials"},
+        "warmup": {"type": "integer"},
+        "iterations_note": {"type": "string"}
+      }
+    },
+    "software": {
+      "type": "object",
+      "description": "Versions this run actually used. Quantization kernels change between bitsandbytes/transformers releases, so two reports are only directly comparable when these agree.",
+      "properties": {
+        "python": {"type": "string"},
+        "packages": {"type": "object", "additionalProperties": {"type": "string"}},
+        "torch_cuda": {"type": ["string", "null"]},
+        "nvidia_driver": {"type": "string"},
+        "reference_pins": {"type": "object", "additionalProperties": {"type": "string"}},
+        "matches_reference_pins": {"type": "boolean"},
+        "differs_from_reference_pins": {"type": "array", "items": {"type": "string"}},
+        "comparability_note": {"type": "string"}
       }
     },
     "measurement_source": {"type": "string"},

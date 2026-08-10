@@ -23,7 +23,30 @@
     "method": "NVML on-device power sampling",
     "sample_rate_hz": 10,
     "tokens_per_run": 256,
-    "iterations": 10
+    "iterations": 10,
+    "warmup": 2,
+    "iterations_note": "Decode iterations within one run, not independent trials: a single report is n=1 however high this is."
+  },
+  "software": {
+    "python": "3.10.12",
+    "packages": {
+      "torch": "2.13.0+cu121",
+      "transformers": "4.57.6",
+      "bitsandbytes": "0.43.3",
+      "accelerate": "1.14.0",
+      "nvidia-ml-py": "13.610.43",
+      "sentencepiece": "0.2.2"
+    },
+    "torch_cuda": "12.1",
+    "nvidia_driver": "550.00.00",
+    "reference_pins": {
+      "transformers": "4.57.6",
+      "bitsandbytes": "0.43.3",
+      "accelerate": "1.14.0",
+      "nvidia-ml-py": "13.610.43",
+      "sentencepiece": "0.2.2"
+    },
+    "matches_reference_pins": true
   },
   "provenance": {
     "tool": "https://quantenergy.tech",

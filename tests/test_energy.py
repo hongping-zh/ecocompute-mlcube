@@ -285,3 +285,60 @@ def test_builtin_checker_matches_jsonschema_on_the_examples():
     bad2 = json.loads((REPO / "examples" / "energy.no-gpu.json").read_text())
     bad2["system_under_test"]["accelerator_count"] = 0     # below minimum
     assert ecc._check_against_schema(bad2, SCHEMA)
+    bad3 = json.loads((REPO / "examples" / "energy.no-gpu.json").read_text())
+    bad3["software"] = {"packages": {"torch": 2.4}}        # additionalProperties type
+    assert ecc._check_against_schema(bad3, SCHEMA)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(bad3, SCHEMA)
+
+
+# --- software provenance ----------------------------------------------------
+
+def test_report_records_the_versions_it_ran_on(tmp_path):
+    report = run_cli(tmp_path, "--gpu_arch", "ada", "--params_b", "1.1",
+                     "--precision", "NF4")
+    jsonschema.validate(report, SCHEMA)
+    sw = report["software"]
+    assert sw["python"].startswith(".".join(str(v) for v in sys.version_info[:2]))
+    assert report["measurement"]["warmup"] == 2
+    # Nothing was executed on this path, so it must not claim anything about how
+    # comparable the (absent) kernels are.
+    assert "matches_reference_pins" not in sw
+
+
+def test_measured_report_states_whether_it_used_the_pins():
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    measured = {"total_energy_joules": 100.0, "tokens_generated": 2560,
+                "energy_per_token_mj": 39.1, "avg_power_watts": 300.0,
+                "throughput_tokens_per_s": 100.0, "gpu_name": "NVIDIA GeForce RTX 4090"}
+    report = ecc.build_report(params, measured=measured, ref=None)
+    jsonschema.validate(report, SCHEMA)
+    assert report["results"]["basis"] == "measured"
+    assert isinstance(report["software"]["matches_reference_pins"], bool)
+
+
+def test_pin_mismatch_is_reported_against_requirements(monkeypatch):
+    monkeypatch.setattr(ecc, "reference_pins",
+                        lambda: {"torch": "2.13.0", "transformers": "4.57.6"})
+    monkeypatch.setattr(ecc, "_pkg_version",
+                        lambda name: "4.46.3" if name == "transformers" else None)
+    sw = ecc.collect_software()
+    assert sw["matches_reference_pins"] is False
+    assert sw["differs_from_reference_pins"] == ["transformers 4.46.3 != 4.57.6"]
+    # torch is expected to differ (it must match the host driver), so it is not
+    # compared and must not show up as a comparability problem.
+    assert "torch" not in sw["reference_pins"]
+
+
+def test_matching_pins_report_no_comparability_caveat(monkeypatch):
+    monkeypatch.setattr(ecc, "reference_pins", lambda: {"transformers": "4.57.6"})
+    monkeypatch.setattr(ecc, "_pkg_version",
+                        lambda name: "4.57.6" if name == "transformers" else None)
+    sw = ecc.collect_software()
+    assert sw["matches_reference_pins"] is True
+    assert "comparability_note" not in sw
+
+
+def test_reference_pins_are_read_from_requirements():
+    pins = ecc.reference_pins()
+    assert pins["transformers"] and pins["bitsandbytes"]

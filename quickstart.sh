@@ -57,6 +57,16 @@ print("  Energy/token   : %s mJ  (FP16 baseline %s mJ)"
       % (res.get("energy_per_token_mj"), res.get("fp16_energy_per_token_mj")))
 print("  vs FP16        : %s %%" % res.get("vs_fp16_energy_pct"))
 print("  Basis          : %s   (source: %s)" % (res.get("basis"), r.get("measurement_source")))
+sw = r.get("software", {})
+pkgs = sw.get("packages", {})
+print("  Software       : python %s, torch %s, transformers %s, bitsandbytes %s"
+      % (sw.get("python", "?"), pkgs.get("torch", "?"),
+         pkgs.get("transformers", "?"), pkgs.get("bitsandbytes", "?")))
+if sw.get("differs_from_reference_pins"):
+    print("\n  NOTE: not the published pins (%s).\n"
+          "        Still a real measurement, but quantization kernels change between\n"
+          "        releases - don't compare vs_fp16 with image runs without saying so."
+          % "; ".join(sw["differs_from_reference_pins"]))
 if res.get("basis") != "measured":
     print("\n  NOTE: this is NOT a measurement - GPU power telemetry was unreadable and\n"
           "        the run fell back to the published dataset. Fix the GPU access (see\n"
