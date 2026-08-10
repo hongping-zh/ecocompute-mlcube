@@ -86,7 +86,15 @@ else
   # China is the single slowest step of a first run - it dominated a measured
   # 57-minute end-to-end run. Fall back to the cu121 index if that fails or
   # yields a CPU-only build.
-  python -m pip install torch || true
+  #
+  # ECO_TORCH_INDEX forces an index (e.g. https://download.pytorch.org/whl/cu121)
+  # when you already know which CUDA line the pinned bitsandbytes needs; step 4b
+  # detects and repairs a mismatch otherwise.
+  if [ -n "${ECO_TORCH_INDEX:-}" ]; then
+    python -m pip install --index-url "$ECO_TORCH_INDEX" torch || true
+  else
+    python -m pip install torch || true
+  fi
   if ! python -c "import torch,sys; sys.exit(0 if torch.version.cuda else 1)" 2>/dev/null; then
     echo "[setup] no CUDA build from the default index — falling back to download.pytorch.org/cu121"
     python -m pip install --index-url https://download.pytorch.org/whl/cu121 --force-reinstall torch
@@ -140,6 +148,60 @@ else
     "pyyaml>=6.0.1" \
     "${EXTRAS[@]}"
 fi
+echo
+echo "=== [4b/5] bitsandbytes GPU backend ======================================"
+# The pinned bitsandbytes ships kernels for the CUDA version the image is built
+# on (12.x). A torch wheel from a newer CUDA line makes it load a .so it does
+# not contain, and quantization then fails *after* the model download with a
+# confusing import error. Exercise a real 4-bit kernel here instead.
+bnb_gpu_check() {
+  python - <<'PY'
+import sys
+try:                                     # 2 = not a bitsandbytes problem
+    import torch
+except Exception as e:
+    print("   torch unusable: %s" % e)
+    sys.exit(2)
+if not torch.cuda.is_available():
+    print("   no CUDA device visible to torch")
+    sys.exit(2)
+try:
+    import bitsandbytes as bnb
+    x = torch.randn(64, 64, device="cuda", dtype=torch.float16)
+    bnb.functional.quantize_4bit(x)
+except Exception as e:
+    print("   %s: %s" % (type(e).__name__, str(e).splitlines()[0]))
+    sys.exit(1)
+print("   ok: 4-bit kernel ran on the GPU")
+PY
+}
+TORCH_CU="$(python -c 'import torch; print(torch.version.cuda or "cpu")' 2>/dev/null || echo unknown)"
+BNB_STATUS=0
+bnb_gpu_check || BNB_STATUS=$?
+if [ "$BNB_STATUS" = "0" ]; then
+  echo "[setup] bitsandbytes GPU backend usable (torch CUDA $TORCH_CU)"
+elif [ "$BNB_STATUS" = "2" ]; then
+  echo "!! torch cannot see a GPU — a measurement is not possible on this host."
+else
+  BNB_V="$(python -c 'import importlib.metadata as m; print(m.version("bitsandbytes"))' 2>/dev/null || echo '?')"
+  echo "!! bitsandbytes $BNB_V has no kernel for this torch build (CUDA $TORCH_CU)."
+  TORCH_PIN="$(grep -E '^torch==' "$REQ" 2>/dev/null | head -1 | cut -d= -f3-)"
+  if [ -n "$TORCH_PIN" ]; then TORCH_SPEC="torch==$TORCH_PIN"; else TORCH_SPEC="torch"; fi
+  echo "[setup] reinstalling $TORCH_SPEC from the cu121 index (what the image is built on)"
+  python -m pip install --index-url https://download.pytorch.org/whl/cu121 \
+    --force-reinstall "$TORCH_SPEC" \
+    || python -m pip install --index-url https://download.pytorch.org/whl/cu121 \
+         --force-reinstall torch
+  if bnb_gpu_check; then
+    echo "[setup] fixed: bitsandbytes GPU backend usable after the cu121 torch"
+  else
+    echo "!! still unusable. The run will complete, but the measurement will fail and"
+    echo "!! the report will be dataset-derived (basis != measured) — do not publish it"
+    echo "!! as a measurement. Options: install a bitsandbytes built for CUDA $TORCH_CU"
+    echo "!! (loses pin comparability), or use the Docker image on a host that has one."
+  fi
+fi
+
 echo "[setup] installed:"
 python - <<'PY'
 import importlib.metadata as m

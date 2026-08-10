@@ -72,6 +72,14 @@ ECO_PYTHON=/root/miniconda3/envs/eco310/bin/python \
 with the venv it would otherwise reuse, rather than quietly running on the old
 interpreter and producing a report that is flagged non-comparable an hour later.
 
+`bitsandbytes` also has to match torch's CUDA line — a torch wheel from a newer
+line makes the pinned `bitsandbytes` look for a `libbitsandbytes_cudaXXX.so` it
+does not ship, and the quantized run then dies with an opaque import error
+*after* the model download. Setup therefore runs a real 4-bit kernel as a
+preflight check and, on failure, reinstalls torch from the cu121 index the image
+is built on. Force an index up front with
+`ECO_TORCH_INDEX=https://download.pytorch.org/whl/cu121`.
+
 No flags are needed: `gpu_arch` defaults to `auto` and is derived from the NVML
 device name, so a run cannot silently label an RTX 4090 as Blackwell. If you
 would rather read the script first, it is [`quickstart.sh`](quickstart.sh), and

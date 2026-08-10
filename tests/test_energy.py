@@ -339,6 +339,14 @@ def test_matching_pins_report_no_comparability_caveat(monkeypatch):
     assert "comparability_note" not in sw
 
 
+def test_quantization_hint_is_quiet_for_fp16_and_explains_a_broken_backend():
+    assert ecc._quantization_backend_hint("FP16") is None
+    # No CUDA torch here, so the probe fails the same way a CUDA-line mismatch
+    # does: the hint must name bitsandbytes rather than blame the GPU.
+    hint = ecc._quantization_backend_hint("NF4")
+    assert hint and "bitsandbytes" in hint
+
+
 def test_reference_pins_are_read_from_requirements():
     pins = ecc.reference_pins()
     assert pins["transformers"] and pins["bitsandbytes"]
