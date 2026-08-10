@@ -323,6 +323,34 @@ def _quant_config(precision):
     return None
 
 
+def _quantization_backend_hint(precision):
+    """Name the likely cause when a quantized run dies inside bitsandbytes.
+
+    The library reports a missing kernel as an opaque import failure, which reads
+    like a broken GPU. It is usually a torch built for a CUDA line the installed
+    bitsandbytes has no kernels for.
+    """
+    if precision == "FP16":
+        return None
+    try:
+        import torch
+        import bitsandbytes as bnb
+        x = torch.randn(8, 8, device="cuda", dtype=torch.float16)
+        bnb.functional.quantize_4bit(x)
+        return None
+    except Exception:
+        cuda = None
+        bnb_version = _pkg_version("bitsandbytes")
+        try:
+            import torch
+            cuda = torch.version.cuda
+        except Exception:
+            pass
+        return ("bitsandbytes %s cannot run a %s kernel against torch's CUDA %s "
+                "build; install a matching pair (the image uses CUDA 12.1) and re-run"
+                % (bnb_version or "?", precision, cuda or "?"))
+
+
 class PowerUnsupportedError(RuntimeError):
     """Raised when the GPU/driver cannot report power via NVML (e.g. some older cards)."""
 
@@ -673,8 +701,11 @@ def run(args):
                                              int(p["warmup"]), int(p["sample_rate_hz"]))
         except Exception as e:  # NVML/driver/arch/OOM issue -> fall back, don't crash
             measure_error = str(e)
+            hint = _quantization_backend_hint(p["precision"])
+            if hint:
+                measure_error += " — " + hint
             measured = fp16_measured = None
-            print(f"[ecocompute-mlcube] on-device measurement failed ({e}); "
+            print(f"[ecocompute-mlcube] on-device measurement failed ({measure_error}); "
                   "falling back to published-dataset reference", file=sys.stderr)
 
     if measured is None:
