@@ -350,3 +350,69 @@ def test_quantization_hint_is_quiet_for_fp16_and_explains_a_broken_backend():
 def test_reference_pins_are_read_from_requirements():
     pins = ecc.reference_pins()
     assert pins["transformers"] and pins["bitsandbytes"]
+
+# --- regression check against the published curve ---------------------------
+
+def _load_checker():
+    spec = importlib.util.spec_from_file_location(
+        "ecc_check_regression", REPO / "tools" / "check_regression.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+chk = _load_checker()
+
+CURVES = {
+    "curves": {"ada": {"INT8": {"A": 272.7, "S": 291.9, "Nstar": 2.5938,
+                                "resid_std": 22.44,
+                                "anchors": [{"N": 1.1, "dE": 146.11,
+                                             "gpu": "RTX 4090", "n": 1}]}}},
+    "borrow": {},
+}
+
+
+def _report(basis="measured", source="direct-nvml", de=137.9):
+    return {
+        "system_under_test": {"gpu": "NVIDIA GeForce RTX 4090", "gpu_arch": "ada"},
+        "workload": {"params_b": 1.1, "precision": "INT8"},
+        "measurement_source": source,
+        "results": {"vs_fp16_energy_pct": de, "basis": basis},
+    }
+
+
+def _run_check(tmp_path, report, k="2"):
+    p = tmp_path / "energy.json"
+    c = tmp_path / "curves.json"
+    p.write_text(json.dumps(report))
+    c.write_text(json.dumps(CURVES))
+    return chk.main([str(p), "--curves", str(c), "--k", k])
+
+
+def test_regression_check_passes_inside_the_band(tmp_path):
+    assert _run_check(tmp_path, _report()) == 0
+
+
+def test_regression_check_fails_outside_the_band(tmp_path):
+    assert _run_check(tmp_path, _report(de=10.0)) == 1
+
+
+def test_regression_check_refuses_to_grade_a_derived_report(tmp_path):
+    # An interpolated report comes *from* the curve: grading it against the
+    # curve would always pass and would mean nothing.
+    derived = _report(basis="interpolated",
+                      source="ecocompute-dataset (on-device measurement failed)")
+    assert _run_check(tmp_path, derived) == 2
+
+
+def test_regression_check_skips_an_architecture_without_a_curve(tmp_path):
+    other = _report()
+    other["system_under_test"]["gpu_arch"] = "turing"
+    assert _run_check(tmp_path, other) == 2
+
+
+def test_regression_check_prefers_an_anchor_at_the_same_size(tmp_path, capsys):
+    # The current ada/INT8 fit sits ~40 pp above its own 1.1B anchor, so a run
+    # that agrees with the anchor must pass even though it is far from the fit.
+    assert _run_check(tmp_path, _report(de=146.0)) == 0
+    assert "anchors at this size" in capsys.readouterr().out

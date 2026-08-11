@@ -188,6 +188,7 @@ ecocompute-mlcube/
 ├── schema/energy.schema.json   # JSON Schema for the report (energy fields)
 ├── examples/            # sample energy.json outputs (no-GPU + measured), schema-valid
 ├── tests/               # pytest: schema validity, param passing, no-GPU honesty
+├── tools/check_regression.py   # grade a measured report against the published curve (needs a GPU host)
 ├── quickstart.sh        # zero-config one-liner (docker or, without it, a venv install)
 ├── .github/workflows/ci.yml             # CI: pytest + shellcheck + CPU image + schema check
 ├── .github/workflows/publish-image.yml  # builds and pushes ghcr.io/hongping-zh/ecocompute-mlcube
@@ -288,6 +289,33 @@ every report validates against the schema, that parameters flow into the output,
 that `batch_size` selects the scenario, and that the no-GPU path never labels a
 result as `measured`. CI (`.github/workflows/mlcube-verify.yml`) runs these tests
 plus a full `Dockerfile.cpu` build + container run + schema check on every push/PR.
+
+## Regression check against the published curve
+
+After a measured run, grade it against the published fit:
+
+```bash
+python3 tools/check_regression.py ecocompute-out/energy.json
+# 0 = within the band, 1 = outside it, 2 = not gradeable
+```
+
+It compares `vs_fp16_energy_pct` with the published anchor(s) of the *same*
+model size (falling back to the fitted curve only when there is no anchor at
+that size — the fit is smooth across sizes and can sit tens of points off any
+single one). The band is `k * resid_std` (default `k=2`), i.e. the fit's own
+residual dispersion; it is **not** a confidence interval.
+
+Two deliberate limits:
+
+- It refuses to grade a report whose `basis` is not `measured`: an
+  interpolated report is derived *from* the curve, so checking it against the
+  curve is circular.
+- It cannot run in CI — GitHub-hosted runners have no NVIDIA GPU. Run it on the
+  GPU host after `quickstart.sh`.
+
+A pass means "this build still measures what it used to", not "this confirms
+the curve": a single report is n=1, and a version mismatch with the published
+pins (printed as a caveat) accounts for part of any residual.
 
 ## No-GPU behaviour
 
