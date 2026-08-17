@@ -90,8 +90,13 @@ Common overrides (all optional):
 ```bash
 ECOCOMPUTE_PRECISION=INT8 \
 ECOCOMPUTE_MODEL=Qwen/Qwen2.5-3B ECOCOMPUTE_PARAMS_B=3 \
+ECOCOMPUTE_PREFETCH=1 \
   bash -c "$(curl -fsSL https://raw.githubusercontent.com/hongping-zh/ecocompute-mlcube/main/quickstart.sh)"
 ```
+
+`--share` is always on in the quickstart (it only builds a link locally).
+`ECOCOMPUTE_PREFETCH=1` adds `--prefetch`, the one thing that talks to the site
+before measuring, so it stays opt-in — see below.
 
 Or drive the image yourself:
 

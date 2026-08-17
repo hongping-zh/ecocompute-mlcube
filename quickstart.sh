@@ -26,6 +26,8 @@
 #   ECOCOMPUTE_NO_BUILD=1  fail instead of building locally when the pull fails
 #   ECOCOMPUTE_MODE        docker | native  (default: docker if usable, else native)
 #   ECOCOMPUTE_SRC         checkout dir for native mode (default: on the data disk)
+#   ECOCOMPUTE_PREFETCH=1  ask the site for its prediction first and print it next
+#                          to your measurement (one HTTPS GET; off by default)
 set -euo pipefail
 
 IMAGE="${ECOCOMPUTE_IMAGE:-ghcr.io/hongping-zh/ecocompute-mlcube:latest}"
@@ -33,6 +35,10 @@ MODEL="${ECOCOMPUTE_MODEL:-TinyLlama/TinyLlama-1.1B-Chat-v1.0}"
 PARAMS_B="${ECOCOMPUTE_PARAMS_B:-1.1}"
 PRECISION="${ECOCOMPUTE_PRECISION:-NF4}"
 ITERATIONS="${ECOCOMPUTE_ITERATIONS:-10}"
+# --share only builds a local URL, so it is always on; --prefetch talks to the
+# estimator API before measuring, so it stays opt-in.
+EXTRA_ARGS=(--share)
+if [ "${ECOCOMPUTE_PREFETCH:-0}" = "1" ]; then EXTRA_ARGS+=(--prefetch); fi
 OUT="${ECOCOMPUTE_OUT:-$PWD/ecocompute-out}"
 read -r -a GPU_ARGS <<< "${ECOCOMPUTE_GPU_ARGS---gpus all}"
 CACHE="${ECOCOMPUTE_CACHE:-$HOME/.cache/ecocompute-hf}"
@@ -148,7 +154,7 @@ if [ "$MODE" = native ]; then
     --iterations "$ITERATIONS" \
     --warmup 2 \
     --output_dir "$OUT" \
-    --share
+    "${EXTRA_ARGS[@]}"
   summarize
   exit 0
 fi
@@ -194,7 +200,7 @@ measure() {
       --iterations "$ITERATIONS" \
       --warmup 2 \
       --output_dir /workspace/outputs \
-      --share
+      "${EXTRA_ARGS[@]}"
 }
 
 if ! measure "${GPU_ARGS[@]}"; then
