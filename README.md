@@ -76,9 +76,19 @@ interpreter and producing a report that is flagged non-comparable an hour later.
 line makes the pinned `bitsandbytes` look for a `libbitsandbytes_cudaXXX.so` it
 does not ship, and the quantized run then dies with an opaque import error
 *after* the model download. Setup therefore runs a real 4-bit kernel as a
-preflight check and, on failure, reinstalls torch from the cu121 index the image
-is built on. Force an index up front with
+preflight check. On failure it first upgrades `bitsandbytes` to a release that
+has kernels for the torch you already have — one small wheel from the index you
+are already using — and only then falls back to reinstalling torch from the
+cu121 index the image is built on (~2.5 GB from `download.pytorch.org`, which
+rented boxes often cannot reach, and which caps torch at 2.5.1, the last cu121
+build published). The upgrade leaves the published pins, so the report carries
+`software.differs_from_reference_pins` and `vs_fp16` is not directly comparable
+with image runs; `ECO_KEEP_PINS=1` skips it. Force an index up front with
 `ECO_TORCH_INDEX=https://download.pytorch.org/whl/cu121`.
+
+If neither repair works, native mode stops **before** downloading the model
+instead of spending your time on a run that can only produce
+`basis != measured`. `ECOCOMPUTE_ALLOW_FALLBACK=1` overrides that.
 
 No flags are needed: `gpu_arch` defaults to `auto` and is derived from the NVML
 device name, so a run cannot silently label an RTX 4090 as Blackwell. If you

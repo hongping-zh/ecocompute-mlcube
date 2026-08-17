@@ -28,6 +28,9 @@
 #   ECOCOMPUTE_SRC         checkout dir for native mode (default: on the data disk)
 #   ECOCOMPUTE_PREFETCH=1  ask the site for its prediction first and print it next
 #                          to your measurement (one HTTPS GET; off by default)
+#   ECOCOMPUTE_ALLOW_FALLBACK=1
+#                          native mode: run even when the quantization backend is
+#                          broken (the report will not be a measurement)
 set -euo pipefail
 
 IMAGE="${ECOCOMPUTE_IMAGE:-ghcr.io/hongping-zh/ecocompute-mlcube:latest}"
@@ -143,6 +146,29 @@ if [ "$MODE" = native ]; then
   SKIP_DOWNLOAD=1 bash "$SRC/autodl/00_setup.sh"
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
+
+  # Setup already tried to repair the quantization backend; if it could not, the
+  # run would spend several minutes downloading a model only to fall back to a
+  # dataset-derived report. Stop here instead - a volunteer's time is the scarce
+  # resource, and a non-measurement helps nobody.
+  if ! python3 - <<'PY'
+import sys
+try:
+    import torch, bitsandbytes as bnb
+    if not torch.cuda.is_available():
+        sys.exit(0)          # no GPU here: entrypoint's own fallback path covers it
+    bnb.functional.quantize_4bit(torch.randn(64, 64, device="cuda", dtype=torch.float16))
+except Exception:
+    sys.exit(1)
+PY
+  then
+    warn "the quantization backend cannot run on this host (see the [4b/5] output above)."
+    warn "measuring now would download the model and still produce basis != measured."
+    if [ "${ECOCOMPUTE_ALLOW_FALLBACK:-0}" != "1" ]; then
+      die "stopping. Re-run with ECOCOMPUTE_ALLOW_FALLBACK=1 to get the non-measured report anyway, or use the Docker image."
+    fi
+    warn "ECOCOMPUTE_ALLOW_FALLBACK=1 - continuing; do not publish the result as a measurement."
+  fi
 
   say "measuring $PRECISION vs FP16 on $MODEL ($ITERATIONS decode iterations each)"
   say "first run also downloads the model into $HF_HOME"
