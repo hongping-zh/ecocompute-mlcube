@@ -185,16 +185,51 @@ elif [ "$BNB_STATUS" = "2" ]; then
 else
   BNB_V="$(python -c 'import importlib.metadata as m; print(m.version("bitsandbytes"))' 2>/dev/null || echo '?')"
   echo "!! bitsandbytes $BNB_V has no kernel for this torch build (CUDA $TORCH_CU)."
-  TORCH_PIN="$(grep -E '^torch==' "$REQ" 2>/dev/null | head -1 | cut -d= -f3-)"
-  if [ -n "$TORCH_PIN" ]; then TORCH_SPEC="torch==$TORCH_PIN"; else TORCH_SPEC="torch"; fi
-  echo "[setup] reinstalling $TORCH_SPEC from the cu121 index (what the image is built on)"
-  python -m pip install --index-url https://download.pytorch.org/whl/cu121 \
-    --force-reinstall "$TORCH_SPEC" \
-    || python -m pip install --index-url https://download.pytorch.org/whl/cu121 \
-         --force-reinstall torch
-  if bnb_gpu_check; then
-    echo "[setup] fixed: bitsandbytes GPU backend usable after the cu121 torch"
-  else
+  BNB_FIXED=0
+
+  # Two ways out, and the order matters on rented boxes. Moving bitsandbytes
+  # forward is one small wheel from the index that is already configured (and
+  # reachable, which download.pytorch.org often is not from such hosts); moving
+  # torch back to cu121 is a ~2.5 GB download from an index that may time out,
+  # and it caps torch at 2.5.1 because that is the last cu121 build published.
+  # So try the small, reachable fix first and say plainly what it costs: the
+  # report then carries software.differs_from_reference_pins, and vs_fp16 is not
+  # directly comparable with image runs. ECO_KEEP_PINS=1 skips it for anyone who
+  # would rather have no measurement than an unpinned one.
+  if [ "${ECO_KEEP_PINS:-0}" != "1" ]; then
+    echo "[setup] trying the cheap fix first: a bitsandbytes with kernels for CUDA $TORCH_CU"
+    echo "[setup] (this leaves the published pins — the report will flag it, and vs_fp16"
+    echo "[setup]  will not be directly comparable with image runs. ECO_KEEP_PINS=1 to skip.)"
+    if python -m pip install --upgrade "bitsandbytes>=0.45" && bnb_gpu_check; then
+      BNB_FIXED=1
+      echo "[setup] fixed: bitsandbytes $(python -c 'import importlib.metadata as m; print(m.version("bitsandbytes"))' 2>/dev/null || echo '?') runs 4-bit kernels on this torch"
+    else
+      echo "!! that did not help; falling back to moving torch onto the cu121 line."
+    fi
+  fi
+
+  if [ "$BNB_FIXED" != "1" ]; then
+    # The image's torch pin does not exist on the cu121 index (it stops at
+    # 2.5.1), so ask for the pin only if it is actually available there and let
+    # the unpinned install pick the newest cu121 build otherwise.
+    TORCH_PIN="$(grep -E '^torch==' "$REQ" 2>/dev/null | head -1 | cut -d= -f3-)"
+    TORCH_SPEC="torch"
+    if [ -n "$TORCH_PIN" ] && python -m pip download --no-deps --dest "$TMPDIR/torchprobe" \
+         --index-url https://download.pytorch.org/whl/cu121 "torch==$TORCH_PIN" >/dev/null 2>&1; then
+      TORCH_SPEC="torch==$TORCH_PIN"
+    elif [ -n "$TORCH_PIN" ]; then
+      echo "[setup] torch==$TORCH_PIN is not published on the cu121 index; taking its newest cu121 build instead"
+    fi
+    echo "[setup] reinstalling $TORCH_SPEC from the cu121 index (what the image is built on)"
+    python -m pip install --index-url https://download.pytorch.org/whl/cu121 \
+      --force-reinstall "$TORCH_SPEC" || true
+    if bnb_gpu_check; then
+      BNB_FIXED=1
+      echo "[setup] fixed: bitsandbytes GPU backend usable after the cu121 torch"
+    fi
+  fi
+
+  if [ "$BNB_FIXED" != "1" ]; then
     echo "!! still unusable. The run will complete, but the measurement will fail and"
     echo "!! the report will be dataset-derived (basis != measured) — do not publish it"
     echo "!! as a measurement. Options: install a bitsandbytes built for CUDA $TORCH_CU"

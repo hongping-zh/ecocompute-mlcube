@@ -26,6 +26,11 @@
 #   ECOCOMPUTE_NO_BUILD=1  fail instead of building locally when the pull fails
 #   ECOCOMPUTE_MODE        docker | native  (default: docker if usable, else native)
 #   ECOCOMPUTE_SRC         checkout dir for native mode (default: on the data disk)
+#   ECOCOMPUTE_PREFETCH=1  ask the site for its prediction first and print it next
+#                          to your measurement (one HTTPS GET; off by default)
+#   ECOCOMPUTE_ALLOW_FALLBACK=1
+#                          native mode: run even when the quantization backend is
+#                          broken (the report will not be a measurement)
 set -euo pipefail
 
 IMAGE="${ECOCOMPUTE_IMAGE:-ghcr.io/hongping-zh/ecocompute-mlcube:latest}"
@@ -33,6 +38,10 @@ MODEL="${ECOCOMPUTE_MODEL:-TinyLlama/TinyLlama-1.1B-Chat-v1.0}"
 PARAMS_B="${ECOCOMPUTE_PARAMS_B:-1.1}"
 PRECISION="${ECOCOMPUTE_PRECISION:-NF4}"
 ITERATIONS="${ECOCOMPUTE_ITERATIONS:-10}"
+# --share only builds a local URL, so it is always on; --prefetch talks to the
+# estimator API before measuring, so it stays opt-in.
+EXTRA_ARGS=(--share)
+if [ "${ECOCOMPUTE_PREFETCH:-0}" = "1" ]; then EXTRA_ARGS+=(--prefetch); fi
 OUT="${ECOCOMPUTE_OUT:-$PWD/ecocompute-out}"
 read -r -a GPU_ARGS <<< "${ECOCOMPUTE_GPU_ARGS---gpus all}"
 CACHE="${ECOCOMPUTE_CACHE:-$HOME/.cache/ecocompute-hf}"
@@ -138,6 +147,29 @@ if [ "$MODE" = native ]; then
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
 
+  # Setup already tried to repair the quantization backend; if it could not, the
+  # run would spend several minutes downloading a model only to fall back to a
+  # dataset-derived report. Stop here instead - a volunteer's time is the scarce
+  # resource, and a non-measurement helps nobody.
+  if ! python3 - <<'PY'
+import sys
+try:
+    import torch, bitsandbytes as bnb
+    if not torch.cuda.is_available():
+        sys.exit(0)          # no GPU here: entrypoint's own fallback path covers it
+    bnb.functional.quantize_4bit(torch.randn(64, 64, device="cuda", dtype=torch.float16))
+except Exception:
+    sys.exit(1)
+PY
+  then
+    warn "the quantization backend cannot run on this host (see the [4b/5] output above)."
+    warn "measuring now would download the model and still produce basis != measured."
+    if [ "${ECOCOMPUTE_ALLOW_FALLBACK:-0}" != "1" ]; then
+      die "stopping. Re-run with ECOCOMPUTE_ALLOW_FALLBACK=1 to get the non-measured report anyway, or use the Docker image."
+    fi
+    warn "ECOCOMPUTE_ALLOW_FALLBACK=1 - continuing; do not publish the result as a measurement."
+  fi
+
   say "measuring $PRECISION vs FP16 on $MODEL ($ITERATIONS decode iterations each)"
   say "first run also downloads the model into $HF_HOME"
   python3 "$SRC/entrypoint.py" energy_estimate \
@@ -148,7 +180,7 @@ if [ "$MODE" = native ]; then
     --iterations "$ITERATIONS" \
     --warmup 2 \
     --output_dir "$OUT" \
-    --share
+    "${EXTRA_ARGS[@]}"
   summarize
   exit 0
 fi
@@ -194,7 +226,7 @@ measure() {
       --iterations "$ITERATIONS" \
       --warmup 2 \
       --output_dir /workspace/outputs \
-      --share
+      "${EXTRA_ARGS[@]}"
 }
 
 if ! measure "${GPU_ARGS[@]}"; then
