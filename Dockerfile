@@ -32,6 +32,9 @@ COPY entrypoint.py /workspace/entrypoint.py
 COPY workspace/parameters /workspace/parameters
 # Shipped so every run can self-check its report before claiming schema validity.
 COPY schema /workspace/schema
+# The perplexity probe's fixed evaluation text: vendored so a run needs no network
+# and every contributor scores the same bytes.
+COPY quality /workspace/quality
 
 ENTRYPOINT ["python3", "/workspace/entrypoint.py"]
 CMD ["energy_estimate"]

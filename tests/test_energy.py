@@ -351,6 +351,162 @@ def test_reference_pins_are_read_from_requirements():
     pins = ecc.reference_pins()
     assert pins["transformers"] and pins["bitsandbytes"]
 
+
+# --- quality probe (perplexity) ---------------------------------------------
+
+class _FakeIds:
+    """Just enough of a 1-D LongTensor for the probe's windowing."""
+
+    def __init__(self, n):
+        self._n = n
+
+    def numel(self):
+        return self._n
+
+    def __getitem__(self, s):
+        start, stop, _ = s.indices(self._n)
+        return _FakeIds(max(0, stop - start))
+
+    def unsqueeze(self, _dim):
+        return self
+
+    def to(self, _device):
+        return self
+
+
+class _FakeModel:
+    """Returns the losses it is handed, one per forward call."""
+
+    def __init__(self, losses, max_pos=4096):
+        self.losses = list(losses)
+        self.calls = []
+        self.config = types.SimpleNamespace(max_position_embeddings=max_pos)
+
+    def parameters(self):
+        yield types.SimpleNamespace(device="cuda:0")
+
+    def __call__(self, batch, labels=None):
+        self.calls.append(batch.numel())
+        return types.SimpleNamespace(loss=self.losses.pop(0))
+
+
+def _fake_torch():
+    import contextlib
+    return types.SimpleNamespace(no_grad=contextlib.nullcontext)
+
+
+def _fake_tok(n_tokens):
+    def tok(_text, return_tensors=None, add_special_tokens=None):
+        return types.SimpleNamespace(input_ids=[_FakeIds(n_tokens)])
+    return tok
+
+
+def test_perplexity_weights_windows_by_predicted_tokens():
+    """A short trailing window must not count as much as a full one."""
+    import math
+    model = _FakeModel([2.0, 4.0])
+    out = ecc.perplexity(model, _fake_tok(1500), "text", _fake_torch(), seq_len=1024)
+    assert model.calls == [1024, 476]           # non-overlapping windows
+    assert out["tokens_evaluated"] == 1023 + 475
+    expected = (2.0 * 1023 + 4.0 * 475) / (1023 + 475)
+    assert out["mean_nll"] == pytest.approx(expected, abs=1e-5)
+    assert out["perplexity"] == pytest.approx(math.exp(expected), abs=1e-3)
+    assert out["windows"] == 2
+
+
+def test_perplexity_window_is_capped_by_the_model_context():
+    model = _FakeModel([1.0], max_pos=512)
+    out = ecc.perplexity(model, _fake_tok(400), "text", _fake_torch(), seq_len=1024)
+    assert out["seq_len"] == 512 and model.calls == [400]
+
+
+def test_vendored_evaluation_text_is_the_one_the_docs_fingerprint():
+    loaded = ecc.load_quality_text()
+    readme = (REPO / "quality" / "README.md").read_text()
+    assert loaded["corpus"]["sha256"] in readme
+    assert loaded["corpus"]["bytes"] > 10000
+
+
+def _measured(ppl=None, **over):
+    m = {"total_energy_joules": 100.0, "tokens_generated": 2560,
+         "energy_per_token_mj": 39.1, "avg_power_watts": 300.0,
+         "throughput_tokens_per_s": 100.0, "gpu_name": "NVIDIA GeForce RTX 4090",
+         "quality": None}
+    if ppl is not None:
+        m["quality"] = {"perplexity": ppl, "mean_nll": 2.0,
+                        "tokens_evaluated": 15000, "windows": 15, "seq_len": 1024}
+    m.update(over)
+    return m
+
+
+def test_quality_delta_is_relative_to_the_same_run_s_fp16_baseline():
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    params["quality_corpus"] = {"name": "eval_text.txt", "bytes": 60600, "sha256": "ab" * 32}
+    report = ecc.build_report(params, measured=_measured(ppl=10.5), ref=None,
+                              fp16_measured=_measured(ppl=10.0, energy_per_token_mj=30.0))
+    jsonschema.validate(report, SCHEMA)
+    q = report["quality"]
+    assert q["basis"] == "measured" and q["metric"] == "perplexity"
+    assert q["delta_vs_fp16_pct"] == pytest.approx(5.0)
+    assert q["corpus"]["sha256"] == "ab" * 32
+    # The energy figure must be untouched by the probe.
+    assert report["results"]["basis"] == "measured"
+    assert report["results"]["vs_fp16_energy_pct"] == pytest.approx(30.3, abs=0.1)
+
+
+def test_quality_without_an_fp16_baseline_refuses_to_imply_a_delta():
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    report = ecc.build_report(params, measured=_measured(ppl=10.5), ref=None)
+    jsonschema.validate(report, SCHEMA)
+    assert "delta_vs_fp16_pct" not in report["quality"]
+    assert "no FP16 perplexity" in report["quality"]["delta_note"]
+
+
+def test_a_failed_quality_probe_leaves_the_energy_measurement_intact():
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    measured = _measured()
+    measured["quality"] = {"error": "OutOfMemoryError: CUDA out of memory"}
+    report = ecc.build_report(params, measured=measured, ref=None,
+                              fp16_measured=_measured(energy_per_token_mj=30.0))
+    jsonschema.validate(report, SCHEMA)
+    assert report["quality"]["basis"] == "unavailable"
+    assert "OutOfMemory" in report["quality"]["error"]
+    assert report["results"]["basis"] == "measured"
+
+
+def test_no_probe_means_no_quality_block_at_all(tmp_path):
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    report = ecc.build_report(params, measured=_measured(), ref=None)
+    jsonschema.validate(report, SCHEMA)
+    assert "quality" not in report
+    # ... and the dataset-derived path never invents one.
+    assert "quality" not in run_cli(tmp_path, "--gpu_arch", "ada", "--params_b", "1.1")
+
+
+def test_quality_probe_can_be_turned_off_and_reads_a_custom_text(tmp_path):
+    off = ecc.load_params(_ns(gpu_arch="ada", no_quality_probe=True))
+    assert ecc.resolve_quality(off) is None
+
+    mine = tmp_path / "heldout.txt"
+    mine.write_text("some held-out text of my own")
+    p = ecc.load_params(_ns(gpu_arch="ada", quality_text=str(mine)))
+    loaded = ecc.resolve_quality(p)
+    assert loaded["text"].startswith("some held-out")
+    assert p["quality_corpus"]["name"] == "heldout.txt"
+    assert p["quality_corpus"]["sha256"] != ecc.load_quality_text()["corpus"]["sha256"]
+
+
+def test_an_unreadable_text_disables_the_probe_rather_than_the_run(tmp_path):
+    p = ecc.load_params(_ns(gpu_arch="ada", quality_text=str(tmp_path / "nope.txt")))
+    assert ecc.resolve_quality(p) is None
+
+
+def test_reports_from_before_the_quality_block_are_still_valid():
+    old = json.loads((REPO / "examples" / "energy.measured.illustrative.json").read_text())
+    old["schema_version"] = "ecocompute-energy/1.0"
+    old.pop("quality", None)
+    jsonschema.validate(old, SCHEMA)
+
 # --- regression check against the published curve ---------------------------
 
 def _load_checker():

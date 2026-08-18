@@ -12,3 +12,7 @@ tokens: 256               # new tokens generated per run
 iterations: 10            # measured decode runs
 warmup: 2                 # warmup runs (not measured)
 sample_rate_hz: 10        # NVML power sampling rate
+quality_probe: true       # after the power sampler stops, score perplexity on the
+                          # vendored text (quality/) with the model already loaded,
+                          # so it costs the energy figure nothing
+quality_seq_len: 1024     # perplexity window, capped at the model's context length
