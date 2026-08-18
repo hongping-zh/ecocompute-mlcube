@@ -22,9 +22,10 @@ On any host with an NVIDIA GPU:
 curl -fsSL https://raw.githubusercontent.com/hongping-zh/ecocompute-mlcube/main/quickstart.sh | bash
 ```
 
-That measures **NF4 and its own FP16 baseline** on TinyLlama-1.1B, writes a
-schema-validated `energy.json` into `./ecocompute-out/`, and prints a link that
-overlays your point on the published curve.
+That measures **NF4 and its own FP16 baseline** on TinyLlama-1.1B, scores both
+for perplexity on a fixed text so you also see what the quantization cost in
+quality, writes a schema-validated `energy.json` into `./ecocompute-out/`, and
+prints a link that overlays your point on the published curve.
 
 **How long it takes** is dominated by downloads, not by the measurement (a few
 minutes), and later runs reuse the caches. The one end-to-end run we have timed
@@ -106,7 +107,8 @@ ECOCOMPUTE_PREFETCH=1 \
 
 `--share` is always on in the quickstart (it only builds a link locally).
 `ECOCOMPUTE_PREFETCH=1` adds `--prefetch`, the one thing that talks to the site
-before measuring, so it stays opt-in — see below.
+before measuring, so it stays opt-in — see below. `ECOCOMPUTE_QUALITY=0` turns
+off the perplexity probe.
 
 Or drive the image yourself:
 
@@ -188,6 +190,38 @@ python3 entrypoint.py energy_estimate \
   stores anything**, consistent with the site's privacy model. The same link is
   also added to `energy.json` as `share_url`.
 
+### The quality probe (perplexity)
+
+Energy on its own cannot say whether a quantization was worth taking: a format
+that halves the joules and wrecks the model is not a win. So each measured run
+also scores the perplexity of the model it just measured, and reports
+`quality.delta_vs_fp16_pct` against the FP16 baseline **from the same run**.
+
+How it stays out of the energy figure:
+
+- it is a separate teacher-forcing forward pass, not the decode loop — you cannot
+  get a perplexity out of free generation;
+- it runs **after `sampler.stop()`**, with the model already loaded, so not one
+  joule of it is charged to `energy_per_token_mj`, and it adds seconds, not
+  minutes;
+- if it fails (OOM, an unusual head), the report says `quality.basis:
+  "unavailable"` with the error and the energy measurement stands unchanged.
+
+The text is vendored in [`quality/`](quality/) — two public-domain excerpts,
+~10.6k words — so a run needs no network and no `datasets` dependency, and every
+contributor scores the same bytes. Its sha256 is recorded in the report.
+
+**Read the delta, not the absolute number.** Perplexity depends on the text and
+the tokenizer, so the absolute value is not comparable with published WikiText
+figures or across models; only FP16-vs-quantized on identical bytes is. And
+perplexity is a proxy for language-model damage, not a downstream-task quality
+guarantee. `quality/README.md` says this in more detail.
+
+Useful when the vendored text is the wrong one for you: `--quality_text
+/path/to/your.txt` (its sha256 goes into the report, so a run on other bytes can
+never be silently compared with one on these), `--quality_seq_len`, and
+`--no_quality_probe` / `ECOCOMPUTE_QUALITY=0`.
+
 ## Layout
 
 ```
@@ -200,7 +234,8 @@ ecocompute-mlcube/
 ├── requirements.txt     # top-level runtime deps, exact == pins
 ├── requirements.lock.txt# full transitive lock (pip freeze from the verified image)
 ├── requirements-dev.txt # pyyaml, jsonschema, pytest (tests only)
-├── schema/energy.schema.json   # JSON Schema for the report (energy fields)
+├── schema/energy.schema.json   # JSON Schema for the report (energy + optional quality fields)
+├── quality/             # fixed public-domain text the perplexity probe scores, + its sha256
 ├── examples/            # sample energy.json outputs (no-GPU + measured), schema-valid
 ├── tests/               # pytest: schema validity, param passing, no-GPU honesty
 ├── tools/check_regression.py   # grade a measured report against the published curve (needs a GPU host)
@@ -267,6 +302,7 @@ python3 entrypoint.py energy_estimate --dry_run \
 | `batch_size` | `1` → SingleStream scenario; `>1` → Offline |
 | `gpu_arch` | `auto` (default — from the NVML device name) \| `turing` \| `ampere` \| `ada` \| `hopper` \| `blackwell` \| a GPU name |
 | `tokens`, `iterations`, `warmup`, `sample_rate_hz` | measurement controls |
+| `quality_probe`, `quality_seq_len` | perplexity probe: on by default, 1024-token windows |
 
 ### Output (`energy.json`)
 
@@ -278,6 +314,11 @@ saves energy). Every result carries a `basis` (`measured` / `interpolated` /
 run used and whether they are the published pins; `measurement.iterations` is
 decode iterations *within* one run, so a single report is n=1 no matter how high
 it is. See `schema/energy.schema.json`.
+
+Schema **1.1** adds an optional `quality` object (perplexity, the FP16 baseline,
+`delta_vs_fp16_pct`, tokens scored and the corpus sha256). It is optional and
+additive: 1.0 reports are still valid, and a run without the probe has no
+`quality` key rather than a null one.
 
 ## Verified
 

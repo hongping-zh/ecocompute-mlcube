@@ -34,7 +34,7 @@ import sys
 import threading
 import time
 
-SCHEMA_VERSION = "ecocompute-energy/1.0"
+SCHEMA_VERSION = "ecocompute-energy/1.1"  # 1.1 adds the optional `quality` block
 
 # Website hooks (opt-in via --prefetch / --share). Both are best-effort and never
 # block or alter the measurement; --share encodes the result point into the URL
@@ -355,6 +355,71 @@ class PowerUnsupportedError(RuntimeError):
     """Raised when the GPU/driver cannot report power via NVML (e.g. some older cards)."""
 
 
+# --------------------------------------------------------------- quality probe --
+# Energy alone cannot say whether a quantization was worth taking: a format that
+# halves the joules and wrecks the model is not a win. The cheapest honest quality
+# axis is perplexity on a fixed text, scored by the *same loaded model* right after
+# the energy run — outside the power-sampling window, so it cannot contaminate the
+# measurement. Only the FP16-relative delta is meaningful; see quality/README.md.
+DEFAULT_QUALITY_TEXT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "quality", "eval_text.txt")
+DEFAULT_QUALITY_SEQ_LEN = 1024
+
+
+def load_quality_text(path=None):
+    """Read the evaluation text and fingerprint it, so two runs can only be
+    compared when they scored the same bytes."""
+    import hashlib
+    path = path or DEFAULT_QUALITY_TEXT
+    with open(path, "rb") as f:
+        raw = f.read()
+    return {
+        "text": raw.decode("utf-8"),
+        "corpus": {
+            "name": os.path.basename(path),
+            "bytes": len(raw),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        },
+    }
+
+
+def perplexity(model, tok, text, torch, seq_len=DEFAULT_QUALITY_SEQ_LEN):
+    """Token-level perplexity over non-overlapping windows (teacher forcing).
+
+    Sums the negative log-likelihood of every predicted token and exponentiates
+    the mean, rather than averaging per-window losses, so windows of different
+    length are weighted correctly.
+    """
+    import math
+    limit = getattr(getattr(model, "config", None), "max_position_embeddings", None)
+    if isinstance(limit, int) and limit > 0:
+        seq_len = min(seq_len, limit)
+    ids = tok(text, return_tensors="pt", add_special_tokens=False).input_ids[0]
+    device = next(model.parameters()).device
+    nll_sum, n_pred, windows = 0.0, 0, 0
+    with torch.no_grad():
+        for start in range(0, ids.numel(), seq_len):
+            window = ids[start:start + seq_len]
+            if window.numel() < 2:
+                break
+            batch = window.unsqueeze(0).to(device)
+            loss = model(batch, labels=batch).loss  # mean over window.numel()-1 tokens
+            predicted = window.numel() - 1
+            nll_sum += float(loss) * predicted
+            n_pred += predicted
+            windows += 1
+    if not n_pred:
+        raise ValueError("evaluation text is too short to score")
+    mean_nll = nll_sum / n_pred
+    return {
+        "perplexity": round(math.exp(mean_nll), 4),
+        "mean_nll": round(mean_nll, 6),
+        "tokens_evaluated": n_pred,
+        "windows": windows,
+        "seq_len": seq_len,
+    }
+
+
 def _nvml_gpu_name(pynvml, handle):
     name = pynvml.nvmlDeviceGetName(handle)
     if isinstance(name, bytes):
@@ -373,7 +438,8 @@ def _assert_power_readable(pynvml, handle):
         ) from e
 
 
-def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, hz):
+def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, hz,
+                 quality=None):
     """Load, (quantize,) warm up, then measure energy over `iterations` decode runs.
 
     Raises PowerUnsupportedError if the card cannot report power, so the caller can
@@ -390,7 +456,8 @@ def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, 
         _assert_power_readable(pynvml, handle)
         return _measure_with_handle(
             pynvml, handle, gpu_name, model_name, precision, batch_size,
-            tokens, iterations, warmup, hz, torch, AutoModelForCausalLM, AutoTokenizer)
+            tokens, iterations, warmup, hz, torch, AutoModelForCausalLM, AutoTokenizer,
+            quality=quality)
     finally:
         try:
             pynvml.nvmlShutdown()
@@ -400,7 +467,7 @@ def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, 
 
 def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_size,
                          tokens, iterations, warmup, hz, torch,
-                         AutoModelForCausalLM, AutoTokenizer):
+                         AutoModelForCausalLM, AutoTokenizer, quality=None):
     tok = AutoTokenizer.from_pretrained(model_name)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
@@ -438,8 +505,24 @@ def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_
             sampler.error or "NVML returned too few power samples to integrate energy")
 
     joules = sampler.energy_joules()
+
+    # Quality is scored only now, with the sampler stopped: a forward pass inside
+    # the window would be charged to the decode measurement.
+    quality_result = None
+    if quality:
+        t_q = time.time()
+        try:
+            quality_result = perplexity(model, tok, quality["text"], torch,
+                                        seq_len=quality.get("seq_len") or DEFAULT_QUALITY_SEQ_LEN)
+            quality_result["seconds"] = round(time.time() - t_q, 2)
+        except Exception as e:  # OOM, unsupported head, anything — energy still stands
+            quality_result = {"error": "%s: %s" % (type(e).__name__, str(e).splitlines()[0])}
+            print("[ecocompute-mlcube] quality probe failed (%s); the energy "
+                  "measurement is unaffected" % quality_result["error"], file=sys.stderr)
+
     return {
         "gpu_name": gpu_name,
+        "quality": quality_result,
         "total_energy_joules": round(joules, 3),
         "tokens_generated": total_new,
         "energy_per_token_mj": round(joules / total_new * 1000.0, 3) if total_new else None,
@@ -451,6 +534,53 @@ def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_
 
 
 # ------------------------------------------------------------------- reporting --
+QUALITY_NOTE = (
+    "Perplexity of this run's model on a fixed vendored text, scored by teacher "
+    "forcing after the power sampler stopped, so it costs the energy figure nothing. "
+    "Only delta_vs_fp16_pct is meaningful: the absolute value depends on this text "
+    "and this tokenizer and is not comparable with published WikiText numbers. "
+    "Perplexity is a proxy for language-model damage, not a downstream-task "
+    "quality guarantee."
+)
+
+
+def build_quality(p, measured, fp16_measured):
+    """Assemble the optional `quality` block from whatever the probe returned.
+
+    Both the quantized run and its FP16 baseline score the same bytes in the same
+    process, so the delta isolates the quantization kernel. If either side is
+    missing the block still records what was measured, rather than a delta against
+    an unknown baseline.
+    """
+    q = (measured or {}).get("quality")
+    if not q:
+        return None
+    corpus = (p.get("quality_corpus") or {}) or None
+    if q.get("error"):
+        return {"metric": "perplexity", "basis": "unavailable", "corpus": corpus,
+                "error": q["error"], "note": QUALITY_NOTE}
+    out = {
+        "metric": "perplexity",
+        "basis": "measured",
+        "value": q["perplexity"],
+        "mean_nll": q["mean_nll"],
+        "tokens_evaluated": q["tokens_evaluated"],
+        "windows": q["windows"],
+        "seq_len": q["seq_len"],
+        "corpus": corpus,
+        "note": QUALITY_NOTE,
+    }
+    base = ((fp16_measured or {}).get("quality") or {}).get("perplexity")
+    if base:
+        out["fp16_value"] = base
+        out["delta_vs_fp16_pct"] = round((q["perplexity"] - base) / base * 100.0, 3)
+    elif p["precision"] != "FP16":
+        out["delta_note"] = ("no FP16 perplexity from this run, so no delta: an "
+                             "absolute perplexity alone says nothing about the "
+                             "quantization")
+    return out
+
+
 def build_report(p, measured, ref, fp16_measured=None, measure_error=None):
     arch = norm_arch(p["gpu_arch"])
     scenario = "SingleStream" if int(p["batch_size"]) == 1 else "Offline"
@@ -520,6 +650,9 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None):
             report["results"]["fp16_energy_per_token_mj"] = base
             report["results"]["vs_fp16_energy_pct"] = round(
                 (measured["energy_per_token_mj"] - base) / base * 100.0, 1)
+        quality = build_quality(p, measured, fp16_measured)
+        if quality:
+            report["quality"] = quality
     else:
         if measure_error:
             source = "ecocompute-dataset (on-device measurement failed)"
@@ -554,10 +687,14 @@ def load_params(args):
         if getattr(args, k):
             p[k] = getattr(args, k)
     for k in ("batch_size", "params_b", "tokens", "iterations", "warmup",
-              "sample_rate_hz", "context_length"):
-        v = getattr(args, k)
+              "sample_rate_hz", "context_length", "quality_seq_len"):
+        v = getattr(args, k, None)
         if v is not None:
             p[k] = v
+    if getattr(args, "quality_text", None):
+        p["quality_text"] = args.quality_text
+    if getattr(args, "no_quality_probe", False):
+        p["quality_probe"] = False
     p.setdefault("model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
     p.setdefault("precision", "NF4")
     p.setdefault("gpu_arch", "blackwell")
@@ -567,6 +704,8 @@ def load_params(args):
     p.setdefault("warmup", 2)
     p.setdefault("sample_rate_hz", 10)
     p.setdefault("params_b", None)
+    p.setdefault("quality_probe", True)
+    p.setdefault("quality_seq_len", DEFAULT_QUALITY_SEQ_LEN)
     return p
 
 
@@ -679,6 +818,22 @@ def resolve_arch(p):
           % (name or "unavailable"), file=sys.stderr)
 
 
+def resolve_quality(p):
+    """Load the evaluation text once, for both the quantized run and its FP16
+    baseline. A text that cannot be read disables the probe rather than the run."""
+    if not p.get("quality_probe", True):
+        return None
+    try:
+        loaded = load_quality_text(p.get("quality_text"))
+    except OSError as e:
+        print("[ecocompute-mlcube] quality probe disabled: cannot read the evaluation "
+              "text (%s)" % e, file=sys.stderr)
+        return None
+    p["quality_corpus"] = loaded["corpus"]
+    loaded["seq_len"] = int(p.get("quality_seq_len") or DEFAULT_QUALITY_SEQ_LEN)
+    return loaded
+
+
 def run(args):
     p = load_params(args)
     os.makedirs(args.output_dir, exist_ok=True)
@@ -691,14 +846,16 @@ def run(args):
     measured = fp16_measured = ref = None
     measure_error = None
     if gpu_available() and not args.dry_run:
+        quality = resolve_quality(p)  # only the measuring path can score quality
         try:
             measured = measure_once(p["model_name"], p["precision"], int(p["batch_size"]),
                                     int(p["tokens"]), int(p["iterations"]), int(p["warmup"]),
-                                    int(p["sample_rate_hz"]))
+                                    int(p["sample_rate_hz"]), quality=quality)
             if p["precision"] != "FP16":
                 fp16_measured = measure_once(p["model_name"], "FP16", int(p["batch_size"]),
                                              int(p["tokens"]), int(p["iterations"]),
-                                             int(p["warmup"]), int(p["sample_rate_hz"]))
+                                             int(p["warmup"]), int(p["sample_rate_hz"]),
+                                             quality=quality)
         except Exception as e:  # NVML/driver/arch/OOM issue -> fall back, don't crash
             measure_error = str(e)
             hint = _quantization_backend_hint(p["precision"])
@@ -725,6 +882,17 @@ def run(args):
     with open(out, "w") as f:
         json.dump(report, f, indent=2)
     print(f"[ecocompute-mlcube] wrote {out} (source={report['measurement_source']})")
+
+    q = report.get("quality") or {}
+    if q.get("basis") == "measured":
+        if q.get("delta_vs_fp16_pct") is not None:
+            print("[ecocompute-mlcube] quality: perplexity %.4f vs FP16 %.4f "
+                  "(%+.3f%%, %d tokens) - proxy for LM damage, not task quality"
+                  % (q["value"], q["fp16_value"], q["delta_vs_fp16_pct"],
+                     q["tokens_evaluated"]))
+        else:
+            print("[ecocompute-mlcube] quality: perplexity %.4f (%d tokens); no FP16 "
+                  "baseline in this run, so no delta" % (q["value"], q["tokens_evaluated"]))
 
     differs = report.get("software", {}).get("differs_from_reference_pins")
     if differs and measured:
@@ -851,6 +1019,17 @@ def _add_run_args(parser):
     parser.add_argument("--warmup", type=int, default=None)
     parser.add_argument("--sample_rate_hz", type=int, default=None)
     parser.add_argument("--context_length", type=int, default=None)
+    parser.add_argument("--no_quality_probe", action="store_true",
+                        help="skip the perplexity probe (it runs after the power "
+                             "sampler stops and costs the energy figure nothing, "
+                             "but it does load the evaluation text and add a few "
+                             "seconds per precision)")
+    parser.add_argument("--quality_text", default=None,
+                        help="score perplexity on your own held-out text instead of "
+                             "the vendored one; its sha256 is recorded in the report")
+    parser.add_argument("--quality_seq_len", type=int, default=None,
+                        help="perplexity window in tokens (default %d, capped at the "
+                             "model's context length)" % DEFAULT_QUALITY_SEQ_LEN)
     parser.add_argument("--dry_run", action="store_true", help="force the no-GPU reference path")
     parser.add_argument("--prefetch", action="store_true",
                         help="before measuring, ask the website estimator (/v1/estimate) "

@@ -1,5 +1,5 @@
 {
-  "schema_version": "ecocompute-energy/1.0",
+  "schema_version": "ecocompute-energy/1.1",
   "benchmark": "ecocompute-energy-methodology",
   "follows_mlcommons_energy_reporting_conventions": true,
   "certified_benchmark_result": false,
@@ -66,5 +66,22 @@
     "throughput_tokens_per_s": 111.8,
     "basis": "measured",
     "note": "ILLUSTRATIVE synthetic values, provided only to document the measured-path output format. Numbers are not from a real run."
+  },
+  "quality": {
+    "metric": "perplexity",
+    "basis": "measured",
+    "value": 11.4271,
+    "fp16_value": 11.2903,
+    "delta_vs_fp16_pct": 1.212,
+    "mean_nll": 2.435897,
+    "tokens_evaluated": 14976,
+    "windows": 15,
+    "seq_len": 1024,
+    "corpus": {
+      "name": "eval_text.txt",
+      "bytes": 60600,
+      "sha256": "22ac091a6383740d30f8e41ae144032c873c772db5e1c901112c1c330fdc5504"
+    },
+    "note": "ILLUSTRATIVE synthetic values. Perplexity of this run's model on a fixed vendored text, scored by teacher forcing after the power sampler stopped, so it costs the energy figure nothing. Only delta_vs_fp16_pct is meaningful: the absolute value depends on this text and this tokenizer and is not comparable with published WikiText numbers. Perplexity is a proxy for language-model damage, not a downstream-task quality guarantee."
   }
 }

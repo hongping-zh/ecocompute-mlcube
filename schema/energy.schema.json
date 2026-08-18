@@ -75,6 +75,33 @@
         "note": {"type": "string"}
       }
     },
+    "quality": {
+      "type": "object",
+      "description": "Optional (schema 1.1+). Perplexity of this run's model on a fixed text, scored after the power sampler stopped so it does not enter the energy figure. Only delta_vs_fp16_pct is comparable across runs, and only between runs whose corpus.sha256 agrees.",
+      "required": ["metric", "basis"],
+      "properties": {
+        "metric": {"type": "string", "enum": ["perplexity"]},
+        "basis": {"type": "string", "enum": ["measured", "unavailable"]},
+        "value": {"type": ["number", "null"], "description": "perplexity on this corpus with this tokenizer; NOT comparable with published WikiText numbers"},
+        "fp16_value": {"type": ["number", "null"]},
+        "delta_vs_fp16_pct": {"type": ["number", "null"], "description": "signed % vs the FP16 baseline measured in the same run; positive = quantization made the model worse"},
+        "mean_nll": {"type": ["number", "null"]},
+        "tokens_evaluated": {"type": ["integer", "null"]},
+        "windows": {"type": ["integer", "null"]},
+        "seq_len": {"type": ["integer", "null"]},
+        "corpus": {
+          "type": ["object", "null"],
+          "properties": {
+            "name": {"type": "string"},
+            "bytes": {"type": "integer"},
+            "sha256": {"type": "string"}
+          }
+        },
+        "error": {"type": "string"},
+        "delta_note": {"type": "string"},
+        "note": {"type": "string"}
+      }
+    },
     "provenance": {"type": "object"},
     "trademark_notice": {"type": "string"}
   }

@@ -28,6 +28,8 @@
 #   ECOCOMPUTE_SRC         checkout dir for native mode (default: on the data disk)
 #   ECOCOMPUTE_PREFETCH=1  ask the site for its prediction first and print it next
 #                          to your measurement (one HTTPS GET; off by default)
+#   ECOCOMPUTE_QUALITY=0   skip the perplexity probe (on by default; it runs after
+#                          the power sampler stops, so it never enters the energy)
 #   ECOCOMPUTE_ALLOW_FALLBACK=1
 #                          native mode: run even when the quantization backend is
 #                          broken (the report will not be a measurement)
@@ -42,6 +44,9 @@ ITERATIONS="${ECOCOMPUTE_ITERATIONS:-10}"
 # estimator API before measuring, so it stays opt-in.
 EXTRA_ARGS=(--share)
 if [ "${ECOCOMPUTE_PREFETCH:-0}" = "1" ]; then EXTRA_ARGS+=(--prefetch); fi
+# The quality probe is on by default: it reuses the already-loaded model after the
+# sampler stops, so it adds seconds and answers "did this quantization hurt?".
+if [ "${ECOCOMPUTE_QUALITY:-1}" = "0" ]; then EXTRA_ARGS+=(--no_quality_probe); fi
 OUT="${ECOCOMPUTE_OUT:-$PWD/ecocompute-out}"
 read -r -a GPU_ARGS <<< "${ECOCOMPUTE_GPU_ARGS---gpus all}"
 CACHE="${ECOCOMPUTE_CACHE:-$HOME/.cache/ecocompute-hf}"
@@ -66,6 +71,12 @@ print("  Energy/token   : %s mJ  (FP16 baseline %s mJ)"
       % (res.get("energy_per_token_mj"), res.get("fp16_energy_per_token_mj")))
 print("  vs FP16        : %s %%" % res.get("vs_fp16_energy_pct"))
 print("  Basis          : %s   (source: %s)" % (res.get("basis"), r.get("measurement_source")))
+q = r.get("quality") or {}
+if q.get("basis") == "measured":
+    d = q.get("delta_vs_fp16_pct")
+    print("  Quality (ppl)  : %s vs FP16 %s%s"
+          % (q.get("value"), q.get("fp16_value", "-"),
+             ("  (%+.3f%%)" % d) if d is not None else ""))
 sw = r.get("software", {})
 pkgs = sw.get("packages", {})
 print("  Software       : python %s, torch %s, transformers %s, bitsandbytes %s"
