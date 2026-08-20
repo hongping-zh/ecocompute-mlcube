@@ -377,7 +377,7 @@ pins (printed as a caveat) accounts for part of any residual.
 
 If no NVIDIA GPU / NVML is present (or `--dry_run` is set), the container does **not**
 fabricate a measurement. It emits values derived from the **published EcoCompute
-dataset** (Zenodo DOI `10.5281/zenodo.21066652`), flagged
+dataset** (Zenodo DOI `10.5281/zenodo.19647290`), flagged
 `measurement_source: "ecocompute-dataset (no local GPU)"` and with an explicit note.
 
 The same honesty guarantee holds if a GPU **is** present but NVML power telemetry is
@@ -415,7 +415,9 @@ docker run --rm --entrypoint pip <built-image> freeze > requirements.lock.txt
 
 - Tool: https://quantenergy.tech
 - Paper (SSRN #6854700): *Weight-Only Quantization Does Not Always Save Energy…* (under review)
-- Dataset DOI: `10.5281/zenodo.21066652`
+- Main dataset DOI: `10.5281/zenodo.19647290` (the source of the no-GPU reference values)
+- RTX 4090 (Ada) deep dive DOI: `10.5281/zenodo.22019742` (two sessions; the 2026-08-19 one pairs
+  energy with the perplexity this container now reports)
 - Code: https://github.com/hongping-zh/ecocompute-ai
 
 ## License

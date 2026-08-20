@@ -50,12 +50,13 @@
   },
   "provenance": {
     "tool": "https://quantenergy.tech",
-    "dataset_doi": "10.5281/zenodo.21066652",
+    "dataset_doi": "10.5281/zenodo.19647290",
+    "rtx4090_deep_dive_doi": "10.5281/zenodo.22019742",
     "paper_ssrn": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6854700",
     "code": "https://github.com/hongping-zh/ecocompute-ai"
   },
   "notice": "Not a certified benchmark result. Energy reported in an MLCommons-style format. MLCOMMONS, MLPERF, and MLCUBE are trademarks of MLCommons Association, referenced here nominatively.",
-  "measurement_source": "ILLUSTRATIVE (synthetic) — shows the shape of the on-GPU measured output; NOT a real measurement",
+  "measurement_source": "ILLUSTRATIVE (synthetic) \u2014 shows the shape of the on-GPU measured output; NOT a real measurement",
   "results": {
     "total_energy_joules": 9638.4,
     "tokens_generated": 2560,
