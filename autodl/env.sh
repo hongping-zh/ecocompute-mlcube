@@ -1,11 +1,11 @@
 # shellcheck shell=bash
 # ---------------------------------------------------------------------------
-# EcoCompute MLCube — shared environment for AutoDL RTX 4090D runs.
+# EcoCompute MLCube — shared environment for AutoDL Ada (RTX 4090 / 4090D) runs.
 #
 # This file is *sourced* by the other autodl/*.sh scripts (and can be sourced
 # by you interactively). It sets:
 #   - repo / venv / cache / results paths (kept on the AutoDL data disk),
-#   - the RTX 4090D architecture key expected by entrypoint.py (`ada`),
+#   - the Ada architecture key expected by entrypoint.py (`ada`),
 #   - a Hugging Face mirror + academic acceleration so weight downloads work
 #     from inside China,
 #   - sane sweep defaults (tokens / iterations / warmup / sample rate).
@@ -64,9 +64,16 @@ fi
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 
 # --- run configuration ------------------------------------------------------
-# RTX 4090D is Ada Lovelace -> entrypoint.py arch key `ada`.
+# Both the RTX 4090 and the China-market RTX 4090D are Ada Lovelace ->
+# entrypoint.py arch key `ada`. The label is only cosmetic (the report always
+# carries the name NVML reports), but a hardcoded one mislabels the other card,
+# so ask the driver and fall back only when nvidia-smi is unavailable.
 export GPU_ARCH="${GPU_ARCH:-ada}"
-export GPU_LABEL="${GPU_LABEL:-RTX 4090D}"
+if [ -z "${GPU_LABEL:-}" ]; then
+  GPU_LABEL="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | sed 's/^NVIDIA //')"
+  [ -n "$GPU_LABEL" ] || GPU_LABEL="unknown Ada GPU"
+fi
+export GPU_LABEL
 
 # Measurement controls (match the published methodology: 10 Hz, 256 tok, 10 it).
 export TOKENS="${TOKENS:-256}"

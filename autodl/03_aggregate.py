@@ -23,6 +23,7 @@ import csv
 import glob
 import json
 import os
+import subprocess
 
 # Published RTX 4090D (Ada) anchors currently shown on quantenergy.tech, for a
 # sanity cross-check of a fresh sweep. mJ/token ( == J / 1k tokens ).
@@ -119,6 +120,17 @@ def short_name(model_id):
     return base.replace("-Chat-v1.0", "").replace("-Instruct", "")
 
 
+def _detected_gpu_label():
+    """The card's own name, so a 4090 run is not labelled as a 4090D."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                             capture_output=True, text=True, timeout=10)
+        name = out.stdout.strip().splitlines()[0].strip()
+    except (OSError, IndexError, subprocess.SubprocessError):
+        return "unknown GPU"
+    return name.replace("NVIDIA ", "") or "unknown GPU"
+
+
 def compare_published(rows):
     print("\n== cross-check vs published quantenergy.tech RTX 4090D anchors ==")
     print(f"  {'N(B)':>5} {'prec':>5} {'measured':>10} {'published':>10} {'diff%':>8}")
@@ -139,7 +151,7 @@ def main():
     ap.add_argument("--results", default=os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "results"))
     ap.add_argument("--out", default=None)
-    ap.add_argument("--label", default=os.environ.get("GPU_LABEL", "RTX 4090D"))
+    ap.add_argument("--label", default=os.environ.get("GPU_LABEL") or _detected_gpu_label())
     args = ap.parse_args()
     out = args.out or os.path.join(args.results, "aggregate")
     os.makedirs(out, exist_ok=True)
