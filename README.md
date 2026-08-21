@@ -416,8 +416,9 @@ docker run --rm --entrypoint pip <built-image> freeze > requirements.lock.txt
 - Tool: https://quantenergy.tech
 - Paper (SSRN #6854700): *Weight-Only Quantization Does Not Always Save Energy…* (under review)
 - Main dataset DOI: `10.5281/zenodo.19647290` (the source of the no-GPU reference values)
-- RTX 4090 (Ada) deep dive DOI: `10.5281/zenodo.22019742` (two sessions; the 2026-08-19 one pairs
-  energy with the perplexity this container now reports)
+- RTX 4090 (Ada) deep dive DOI: `10.5281/zenodo.22037483` (three sessions; the 2026-08-19 one pairs
+  energy with the perplexity this container now reports, the 2026-08-20 one repeats INT8 three
+  times per size: CV of the energy delta 0.6–3.9%)
 - Code: https://github.com/hongping-zh/ecocompute-ai
 
 ## License

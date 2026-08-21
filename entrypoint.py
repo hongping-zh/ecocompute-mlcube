@@ -626,7 +626,7 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None):
         "provenance": {
             "tool": "https://quantenergy.tech",
             "dataset_doi": "10.5281/zenodo.19647290",
-            "rtx4090_deep_dive_doi": "10.5281/zenodo.22019742",
+            "rtx4090_deep_dive_doi": "10.5281/zenodo.22037483",
             "paper_ssrn": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6854700",
             "code": "https://github.com/hongping-zh/ecocompute-ai",
         },
