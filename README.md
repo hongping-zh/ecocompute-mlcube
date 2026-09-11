@@ -1,5 +1,16 @@
 # EcoCompute Energy Methodology — MLCube
 
+<a href="https://quantenergy.tech/watt/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=watt-launch&amp;utm_content=ecocompute-mlcube">
+  <img src="https://img.shields.io/badge/Ask%20Watt-WorkBuddy%20Expert-0ea5e9?style=for-the-badge" alt="Ask Watt on WorkBuddy"/>
+</a>
+
+> **Want the decision, not the measurement?** Ask *Watt* — a WorkBuddy expert built on the same
+> measured dataset this container produces. Give it a GPU, a model size and an accuracy target and
+> it answers whether NF4/INT8 will raise or lower your inference energy, with a provenance label
+> (`measured` / `interpolated` / `estimated`), a confidence rating and the boundary conditions.
+> It says "no data" rather than guessing.
+> → **[Ask Watt in WorkBuddy](https://quantenergy.tech/watt/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=watt-launch&amp;utm_content=ecocompute-mlcube)**
+
 A **supplemental energy-methodology container** for LLM inference. It measures the
 *energy* of one configuration — `(GPU × model × precision × batch)` — with direct
 on-device **NVML** power sampling, and writes an `energy.json` report whose fields
