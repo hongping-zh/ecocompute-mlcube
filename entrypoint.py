@@ -34,7 +34,10 @@ import sys
 import threading
 import time
 
-SCHEMA_VERSION = "ecocompute-energy/1.1"  # 1.1 adds the optional `quality` block
+SCHEMA_VERSION = "ecocompute-energy/1.3"
+# 1.1 added the optional `quality` block; 1.2 (protocol 1.1) added `thermal`;
+# 1.3 adds the optional `power_trace` block: raw NVML sidecar samples covering
+# the whole run, so the measurement window can be re-cut post hoc.
 
 # Website hooks (opt-in via --prefetch / --share). Both are best-effort and never
 # block or alter the measurement; --share encodes the result point into the URL
@@ -276,19 +279,23 @@ class PowerSampler(threading.Thread):
         self._pynvml = sys.modules["pynvml"]
         self.handle = handle
         self.period = 1.0 / hz
+        self.t0 = time.time()        # trace clock origin, set at construction
         self.samples = []          # (t_seconds, watts)
         self.dropped = 0           # count of failed reads
         self.error = None          # set if power telemetry is unusable
         # NB: named _stop_evt, not _stop, to avoid shadowing Thread._stop().
         self._stop_evt = threading.Event()
 
+    def elapsed(self):
+        """Seconds on this sampler's trace clock (for phase markers)."""
+        return round(time.time() - self.t0, 3)
+
     def run(self):
-        t0 = time.time()
         consecutive = 0
         while not self._stop_evt.is_set():
             try:
                 mw = self._pynvml.nvmlDeviceGetPowerUsage(self.handle)  # milliwatts
-                self.samples.append((time.time() - t0, mw / 1000.0))
+                self.samples.append((time.time() - self.t0, mw / 1000.0))
                 consecutive = 0
             except Exception as e:  # NVMLError / unsupported field on this card
                 self.dropped += 1
@@ -439,11 +446,15 @@ def _assert_power_readable(pynvml, handle):
 
 
 def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, hz,
-                 quality=None):
+                 quality=None, trace=False):
     """Load, (quantize,) warm up, then measure energy over `iterations` decode runs.
 
     Raises PowerUnsupportedError if the card cannot report power, so the caller can
     fall back to the published-dataset reference path instead of crashing.
+
+    With ``trace=True`` a second sampler also records the whole run from *before*
+    the model is loaded (sidecar power trace, schema 1.3); it never feeds the
+    reported energy, which keeps coming from the generation-window sampler.
     """
     import torch
     import pynvml
@@ -457,7 +468,7 @@ def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, 
         return _measure_with_handle(
             pynvml, handle, gpu_name, model_name, precision, batch_size,
             tokens, iterations, warmup, hz, torch, AutoModelForCausalLM, AutoTokenizer,
-            quality=quality)
+            quality=quality, trace=trace)
     finally:
         try:
             pynvml.nvmlShutdown()
@@ -467,70 +478,108 @@ def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, 
 
 def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_size,
                          tokens, iterations, warmup, hz, torch,
-                         AutoModelForCausalLM, AutoTokenizer, quality=None):
-    tok = AutoTokenizer.from_pretrained(model_name)
-    if tok.pad_token is None:
-        tok.pad_token = tok.eos_token
-    kwargs = {"torch_dtype": torch.float16, "device_map": "cuda"}
-    qc = _quant_config(precision)
-    if qc is not None:
-        kwargs["quantization_config"] = qc
-    model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
-    model.eval()
+                         AutoModelForCausalLM, AutoTokenizer, quality=None, trace=False):
+    # Optional whole-run power trace (schema 1.3). Started BEFORE the tokenizer/
+    # model load so that, unlike every published bitsandbytes report so far, the
+    # window can be re-cut post hoc (generation-only vs whole-process) from the
+    # sidecar CSV. The reported joules still come from the dedicated generation
+    # window sampler below, so enabling this changes no reported number.
+    tracer = PowerSampler(handle, hz=hz) if trace else None
+    phases = {}
+    result = None
+    try:
+        if tracer:
+            tracer.start()
+            phases["trace_start_s"] = 0.0
+            phases["load_start_s"] = tracer.elapsed()
+        tok = AutoTokenizer.from_pretrained(model_name)
+        if tok.pad_token is None:
+            tok.pad_token = tok.eos_token
+        kwargs = {"torch_dtype": torch.float16, "device_map": "cuda"}
+        qc = _quant_config(precision)
+        if qc is not None:
+            kwargs["quantization_config"] = qc
+        model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
+        model.eval()
+        if tracer:
+            phases["model_ready_s"] = tracer.elapsed()
 
-    prompt = ["Explain in detail how large language models work."] * batch_size
-    enc = tok(prompt, return_tensors="pt", padding=True).to("cuda")
+        prompt = ["Explain in detail how large language models work."] * batch_size
+        enc = tok(prompt, return_tensors="pt", padding=True).to("cuda")
 
-    gen = dict(max_new_tokens=tokens, min_new_tokens=tokens, do_sample=False,
-               pad_token_id=tok.pad_token_id)
-    with torch.no_grad():
-        for _ in range(warmup):
-            model.generate(**enc, **gen)
-    torch.cuda.synchronize()
+        gen = dict(max_new_tokens=tokens, min_new_tokens=tokens, do_sample=False,
+                   pad_token_id=tok.pad_token_id)
+        with torch.no_grad():
+            for _ in range(warmup):
+                model.generate(**enc, **gen)
+        torch.cuda.synchronize()
+        if tracer:
+            phases["warmup_end_s"] = tracer.elapsed()
 
-    sampler = PowerSampler(handle, hz=hz)
-    sampler.start()
-    t0 = time.time()
-    total_new = 0
-    with torch.no_grad():
-        for _ in range(iterations):
-            out = model.generate(**enc, **gen)
-            total_new += (out.shape[1] - enc["input_ids"].shape[1]) * batch_size
-    torch.cuda.synchronize()
-    wall = time.time() - t0
-    sampler.stop()
+        if tracer:
+            phases["measure_start_s"] = tracer.elapsed()
+        sampler = PowerSampler(handle, hz=hz)
+        sampler.start()
+        t0 = time.time()
+        total_new = 0
+        with torch.no_grad():
+            for _ in range(iterations):
+                out = model.generate(**enc, **gen)
+                total_new += (out.shape[1] - enc["input_ids"].shape[1]) * batch_size
+        torch.cuda.synchronize()
+        wall = time.time() - t0
+        sampler.stop()
+        if tracer:
+            phases["measure_end_s"] = tracer.elapsed()
 
-    if sampler.error or len(sampler.samples) < 2:
-        raise PowerUnsupportedError(
-            sampler.error or "NVML returned too few power samples to integrate energy")
+        if sampler.error or len(sampler.samples) < 2:
+            raise PowerUnsupportedError(
+                sampler.error or "NVML returned too few power samples to integrate energy")
 
-    joules = sampler.energy_joules()
+        joules = sampler.energy_joules()
 
-    # Quality is scored only now, with the sampler stopped: a forward pass inside
-    # the window would be charged to the decode measurement.
-    quality_result = None
-    if quality:
-        t_q = time.time()
-        try:
-            quality_result = perplexity(model, tok, quality["text"], torch,
-                                        seq_len=quality.get("seq_len") or DEFAULT_QUALITY_SEQ_LEN)
-            quality_result["seconds"] = round(time.time() - t_q, 2)
-        except Exception as e:  # OOM, unsupported head, anything — energy still stands
-            quality_result = {"error": "%s: %s" % (type(e).__name__, str(e).splitlines()[0])}
-            print("[ecocompute-mlcube] quality probe failed (%s); the energy "
-                  "measurement is unaffected" % quality_result["error"], file=sys.stderr)
+        # Quality is scored only now, with the sampler stopped: a forward pass inside
+        # the window would be charged to the decode measurement.
+        quality_result = None
+        if quality:
+            if tracer:
+                phases["quality_start_s"] = tracer.elapsed()
+            t_q = time.time()
+            try:
+                quality_result = perplexity(model, tok, quality["text"], torch,
+                                            seq_len=quality.get("seq_len") or DEFAULT_QUALITY_SEQ_LEN)
+                quality_result["seconds"] = round(time.time() - t_q, 2)
+            except Exception as e:  # OOM, unsupported head, anything — energy still stands
+                quality_result = {"error": "%s: %s" % (type(e).__name__, str(e).splitlines()[0])}
+                print("[ecocompute-mlcube] quality probe failed (%s); the energy "
+                      "measurement is unaffected" % quality_result["error"], file=sys.stderr)
+            if tracer:
+                phases["quality_end_s"] = tracer.elapsed()
 
-    return {
-        "gpu_name": gpu_name,
-        "quality": quality_result,
-        "total_energy_joules": round(joules, 3),
-        "tokens_generated": total_new,
-        "energy_per_token_mj": round(joules / total_new * 1000.0, 3) if total_new else None,
-        "avg_power_watts": round(sampler.avg_watts(), 1),
-        "throughput_tokens_per_s": round(total_new / wall, 1) if wall else None,
-        "wall_seconds": round(wall, 3),
-        "dropped_samples": sampler.dropped,
-    }
+        result = {
+            "gpu_name": gpu_name,
+            "quality": quality_result,
+            "total_energy_joules": round(joules, 3),
+            "tokens_generated": total_new,
+            "energy_per_token_mj": round(joules / total_new * 1000.0, 3) if total_new else None,
+            "avg_power_watts": round(sampler.avg_watts(), 1),
+            "throughput_tokens_per_s": round(total_new / wall, 1) if wall else None,
+            "wall_seconds": round(wall, 3),
+            "dropped_samples": sampler.dropped,
+        }
+    finally:
+        if tracer is not None:
+            tracer.stop()
+    # Reached only on success (an exception propagates past here): attach the
+    # trace after it has been stopped, so trace_end_s is the real recording end.
+    if tracer is not None:
+        phases["trace_end_s"] = tracer.elapsed()
+        result["power_trace"] = {
+            "samples": tracer.samples,
+            "phases": phases,
+            "dropped_samples": tracer.dropped,
+        }
+    return result
 
 
 # ------------------------------------------------------------------- reporting --
@@ -541,6 +590,15 @@ QUALITY_NOTE = (
     "and this tokenizer and is not comparable with published WikiText numbers. "
     "Perplexity is a proxy for language-model damage, not a downstream-task "
     "quality guarantee."
+)
+
+POWER_TRACE_NOTE = (
+    "Raw NVML GPU-package power samples of the whole run, written to sidecar CSV "
+    "files (columns t_s, power_w; t_s is seconds on that file's own trace clock). "
+    "The trace starts BEFORE the model is loaded, so the measurement window can be "
+    "re-cut post hoc — unlike every bitsandbytes report published before schema 1.3, "
+    "which kept only aggregates and could not be re-windowed. The reported "
+    "total_energy_joules is unchanged by this option."
 )
 
 
@@ -579,6 +637,39 @@ def build_quality(p, measured, fp16_measured):
                              "absolute perplexity alone says nothing about the "
                              "quantization")
     return out
+
+
+def write_power_trace_csv(path, samples):
+    """Dump (t_seconds, watts) samples as a two-column CSV sidecar."""
+    with open(path, "w", newline="") as f:
+        f.write("t_s,power_w\n")
+        for t, w in samples:
+            f.write("%.3f,%.3f\n" % (t, w))
+
+
+def build_power_trace_block(files, sample_rate_hz):
+    """Assemble the optional `power_trace` block (schema 1.3).
+
+    ``files`` is a list of per-run sidecar descriptors: role (primary |
+    fp16_baseline), precision, file name, sample count, dropped count and the
+    phase markers on that file's trace clock.
+    """
+    return {
+        "format": "csv",
+        "columns": ["t_s", "power_w"],
+        "sample_rate_hz": int(sample_rate_hz),
+        "window": "generation",
+        "window_note": (
+            "reported energy = trapezoidal integral of a dedicated sampler running "
+            "within [phases.measure_start_s, phases.measure_end_s] (generation only: "
+            "model load, quantization and warm-up excluded; idle power not "
+            "subtracted). The sidecar trace spans the whole run from before model "
+            "load, so generation-only and whole-process windows can both be re-cut "
+            "from it without re-running"
+        ),
+        "files": files,
+        "note": POWER_TRACE_NOTE,
+    }
 
 
 def build_report(p, measured, ref, fp16_measured=None, measure_error=None):
@@ -696,6 +787,8 @@ def load_params(args):
         p["quality_text"] = args.quality_text
     if getattr(args, "no_quality_probe", False):
         p["quality_probe"] = False
+    if getattr(args, "power_trace", False):
+        p["power_trace"] = True
     p.setdefault("model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
     p.setdefault("precision", "NF4")
     p.setdefault("gpu_arch", "blackwell")
@@ -707,6 +800,7 @@ def load_params(args):
     p.setdefault("params_b", None)
     p.setdefault("quality_probe", True)
     p.setdefault("quality_seq_len", DEFAULT_QUALITY_SEQ_LEN)
+    p.setdefault("power_trace", False)
     return p
 
 
@@ -848,15 +942,16 @@ def run(args):
     measure_error = None
     if gpu_available() and not args.dry_run:
         quality = resolve_quality(p)  # only the measuring path can score quality
+        trace = bool(p.get("power_trace"))
         try:
             measured = measure_once(p["model_name"], p["precision"], int(p["batch_size"]),
                                     int(p["tokens"]), int(p["iterations"]), int(p["warmup"]),
-                                    int(p["sample_rate_hz"]), quality=quality)
+                                    int(p["sample_rate_hz"]), quality=quality, trace=trace)
             if p["precision"] != "FP16":
                 fp16_measured = measure_once(p["model_name"], "FP16", int(p["batch_size"]),
                                              int(p["tokens"]), int(p["iterations"]),
                                              int(p["warmup"]), int(p["sample_rate_hz"]),
-                                             quality=quality)
+                                             quality=quality, trace=trace)
         except Exception as e:  # NVML/driver/arch/OOM issue -> fall back, don't crash
             measure_error = str(e)
             hint = _quantization_backend_hint(p["precision"])
@@ -879,6 +974,31 @@ def run(args):
     link = share_url(getattr(args, "site", DEFAULT_SITE), report) if getattr(args, "share", False) else None
     if link:
         report["share_url"] = link
+
+    # Power-trace sidecars (schema 1.3, opt-in via --power_trace). Written only
+    # for measured runs: the no-GPU reference path has nothing to trace.
+    if measured and measured.get("power_trace"):
+        specs = [("primary", p["precision"], measured, "power_trace.csv")]
+        if fp16_measured and fp16_measured.get("power_trace"):
+            specs.append(("fp16_baseline", "FP16", fp16_measured, "power_trace_fp16.csv"))
+        trace_files = []
+        for role, precision, m, fname in specs:
+            td = m["power_trace"]
+            write_power_trace_csv(os.path.join(args.output_dir, fname), td["samples"])
+            trace_files.append({
+                "role": role,
+                "precision": precision,
+                "file": fname,
+                "samples": len(td["samples"]),
+                "dropped_samples": td["dropped_samples"],
+                "phases": td["phases"],
+            })
+        report["power_trace"] = build_power_trace_block(
+            trace_files, int(p.get("sample_rate_hz", 10)))
+        print("[ecocompute-mlcube] wrote power trace sidecars: %s "
+              "(window can be re-cut post hoc; reported energy unchanged)"
+              % ", ".join(e["file"] for e in trace_files))
+
     out = os.path.join(args.output_dir, "energy.json")
     with open(out, "w") as f:
         json.dump(report, f, indent=2)
@@ -1025,6 +1145,12 @@ def _add_run_args(parser):
                              "sampler stops and costs the energy figure nothing, "
                              "but it does load the evaluation text and add a few "
                              "seconds per precision)")
+    parser.add_argument("--power_trace", action="store_true",
+                        help="write raw NVML power-trace sidecars (power_trace.csv, "
+                             "plus power_trace_fp16.csv for the baseline run) covering "
+                             "the whole run from BEFORE model load, so the measurement "
+                             "window can be re-cut post hoc (schema 1.3; the reported "
+                             "energy figure is unchanged)")
     parser.add_argument("--quality_text", default=None,
                         help="score perplexity on your own held-out text instead of "
                              "the vendored one; its sha256 is recorded in the report")

@@ -1,0 +1,3 @@
+# The quality corpus must check out byte-identical everywhere: its sha256
+# is the comparability key between runs (see quality/README.md).
+quality/eval_text.txt text eol=lf

@@ -102,6 +102,38 @@
         "note": {"type": "string"}
       }
     },
+    "power_trace": {
+      "type": "object",
+      "description": "Optional (schema 1.3+). Raw NVML power samples of the whole run, dumped to sidecar CSV files (one per measured run: primary + optional FP16 baseline). The trace starts BEFORE the model is loaded, so the measurement window can be re-cut post hoc; the reported energy is unchanged by this option.",
+      "required": ["format", "sample_rate_hz", "window", "files"],
+      "properties": {
+        "format": {"type": "string"},
+        "columns": {"type": "array", "items": {"type": "string"}},
+        "sample_rate_hz": {"type": "integer"},
+        "window": {"type": "string"},
+        "window_note": {"type": "string"},
+        "note": {"type": "string"},
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "file", "samples"],
+            "properties": {
+              "role": {"type": "string", "enum": ["primary", "fp16_baseline"]},
+              "precision": {"type": "string"},
+              "file": {"type": "string"},
+              "samples": {"type": "integer", "minimum": 0},
+              "dropped_samples": {"type": "integer", "minimum": 0},
+              "phases": {
+                "type": "object",
+                "description": "Phase boundaries in seconds on this file's trace clock: trace_start_s, load_start_s, model_ready_s, warmup_end_s, measure_start_s, measure_end_s, optionally quality_start_s/quality_end_s, trace_end_s. The reported energy integrates only [measure_start_s, measure_end_s].",
+                "additionalProperties": {"type": "number", "minimum": 0}
+              }
+            }
+          }
+        }
+      }
+    },
     "provenance": {"type": "object"},
     "trademark_notice": {"type": "string"}
   }

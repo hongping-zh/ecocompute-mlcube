@@ -16,3 +16,7 @@ quality_probe: true       # after the power sampler stops, score perplexity on t
                           # vendored text (quality/) with the model already loaded,
                           # so it costs the energy figure nothing
 quality_seq_len: 1024     # perplexity window, capped at the model's context length
+power_trace: false        # schema 1.3: write raw NVML power-trace sidecars
+                          # (power_trace.csv) covering the whole run from before
+                          # model load, so the window can be re-cut post hoc;
+                          # the reported energy is unchanged either way

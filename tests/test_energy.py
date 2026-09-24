@@ -181,11 +181,83 @@ def test_prefetch_is_offline_safe():
     assert out is None
 
 
+# --- power-trace sidecars (schema 1.3) ----------------------------------------
+
+def test_power_trace_flag_flows_into_params():
+    assert ecc.load_params(_ns(power_trace=True))["power_trace"] is True
+    assert ecc.load_params(_ns())["power_trace"] is False
+
+
+def test_power_trace_block_is_absent_without_a_measurement(tmp_path):
+    """The no-GPU reference path measures nothing, so there is nothing to trace."""
+    report = run_cli(tmp_path, "--gpu_arch", "blackwell", "--params_b", "3",
+                     "--power_trace")
+    jsonschema.validate(report, SCHEMA)
+    assert "power_trace" not in report
+
+
+def test_write_power_trace_csv_format(tmp_path):
+    p = tmp_path / "power_trace.csv"
+    ecc.write_power_trace_csv(str(p), [(0.0, 71.2), (0.1, 289.9), (0.2, 291.3)])
+    lines = p.read_text().strip().splitlines()
+    assert lines[0] == "t_s,power_w"
+    assert lines[1] == "0.000,71.200"
+    assert lines[2] == "0.100,289.900"
+
+
+def test_power_trace_block_is_schema_valid_and_pins_the_window():
+    files = [
+        {"role": "primary", "precision": "NF4", "file": "power_trace.csv",
+         "samples": 4, "dropped_samples": 0,
+         "phases": {"trace_start_s": 0.0, "load_start_s": 0.01, "model_ready_s": 9.8,
+                    "warmup_end_s": 12.4, "measure_start_s": 12.5,
+                    "measure_end_s": 51.9, "trace_end_s": 51.91}},
+        {"role": "fp16_baseline", "precision": "FP16", "file": "power_trace_fp16.csv",
+         "samples": 4, "dropped_samples": 0,
+         "phases": {"trace_start_s": 0.0, "load_start_s": 0.01, "model_ready_s": 21.3,
+                    "warmup_end_s": 24.9, "measure_start_s": 25.0,
+                    "measure_end_s": 62.1, "trace_end_s": 62.11}},
+    ]
+    block = ecc.build_power_trace_block(files, 10)
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    report = ecc.build_report(params, measured=_measured(), ref=None)
+    report["power_trace"] = block
+    jsonschema.validate(report, SCHEMA)
+    # the block must state what the reported figure integrates AND that the
+    # sidecar lets a reader re-cut the window without re-running
+    note = block["window_note"]
+    assert "measure_start_s" in note and "measure_end_s" in note
+    assert "re-cut" in note
+    ph = block["files"][0]["phases"]
+    assert ph["load_start_s"] < ph["measure_start_s"] < ph["measure_end_s"] < ph["trace_end_s"]
+    # the builtin fallback checker (no jsonschema in the image) agrees
+    errors = ecc._check_against_schema(report, SCHEMA)
+    assert errors == []
+
+
+def test_power_sampler_exposes_a_trace_clock_for_phase_markers():
+    """elapsed() gives phase markers a common clock with the sample timestamps."""
+    fake = types.ModuleType("pynvml")
+    fake.nvmlDeviceGetPowerUsage = lambda _h: 250_000  # 250 W, in milliwatts
+    sys.modules["pynvml"] = fake
+    try:
+        s = ecc.PowerSampler(handle=object(), hz=100)
+        s.start()
+        time.sleep(0.05)
+        mid = s.elapsed()
+        s.stop()
+        end = s.elapsed()
+    finally:
+        del sys.modules["pynvml"]
+    assert 0.0 < mid <= end < 0.5
+    assert s.samples and all(0.0 <= t <= end for t, _ in s.samples)
+
+
 def _ns(**over):
     """Minimal argparse-like namespace with all run args defaulted to None."""
     fields = ("parameters_file", "output_dir", "model_name", "model", "precision",
               "gpu_arch", "batch_size", "params_b", "tokens", "iterations", "warmup",
-              "sample_rate_hz", "context_length", "dry_run")
+              "sample_rate_hz", "context_length", "dry_run", "power_trace")
     ns = types.SimpleNamespace(**{f: None for f in fields})
     for k, v in over.items():
         setattr(ns, k, v)

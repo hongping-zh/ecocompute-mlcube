@@ -233,6 +233,29 @@ Useful when the vendored text is the wrong one for you: `--quality_text
 never be silently compared with one on these), `--quality_seq_len`, and
 `--no_quality_probe` / `ECOCOMPUTE_QUALITY=0`.
 
+### The power-trace sidecar (`--power_trace`, schema 1.3)
+
+`energy.json` normally keeps only aggregates (`total_energy_j`, `avg_power_w`) —
+once a report is written, its measurement window can never be re-examined. That
+cost us a whole re-analysis once: the published bitsandbytes sessions could not
+be re-windowed (generation-only vs whole-process) without re-running, because the
+raw samples were thrown away. `--power_trace` institutionalises the lesson:
+
+- a second NVML sampler records the **whole run from before the model is
+  loaded** — load, quantization, warm-up, generation, quality probe — and is
+  dumped to `power_trace.csv` (`power_trace_fp16.csv` for the baseline run);
+- the report gains a `power_trace` block listing the files, sample counts and
+  **phase markers** (`load_start_s`, `model_ready_s`, `warmup_end_s`,
+  `measure_start_s`, `measure_end_s`, …) on each file's trace clock;
+- the reported `total_energy_joules` is computed by the *same dedicated
+  generation-window sampler as before* — enabling the sidecar changes no
+  reported number, it only adds what you can check later.
+
+With the sidecar, any reader can re-integrate the trace over a different window
+(e.g. whole-process including load, or decode-only) without re-running the GPU:
+the phase markers are the cut points. Files are plain two-column CSVs
+(`t_s,power_w`), one per measured run.
+
 ## Layout
 
 ```
@@ -314,6 +337,7 @@ python3 entrypoint.py energy_estimate --dry_run \
 | `gpu_arch` | `auto` (default — from the NVML device name) \| `turing` \| `ampere` \| `ada` \| `hopper` \| `blackwell` \| a GPU name |
 | `tokens`, `iterations`, `warmup`, `sample_rate_hz` | measurement controls |
 | `quality_probe`, `quality_seq_len` | perplexity probe: on by default, 1024-token windows |
+| `power_trace` | schema 1.3 sidecar: raw NVML samples of the whole run (`--power_trace`), so the window can be re-cut post hoc |
 
 ### Output (`energy.json`)
 
@@ -330,6 +354,10 @@ Schema **1.1** adds an optional `quality` object (perplexity, the FP16 baseline,
 `delta_vs_fp16_pct`, tokens scored and the corpus sha256). It is optional and
 additive: 1.0 reports are still valid, and a run without the probe has no
 `quality` key rather than a null one.
+
+Schema **1.3** adds an optional `power_trace` object (present only for measured
+runs with `--power_trace`): the sidecar file names, sample counts and phase
+markers described above. Also optional and additive — older reports stay valid.
 
 ## Verified
 

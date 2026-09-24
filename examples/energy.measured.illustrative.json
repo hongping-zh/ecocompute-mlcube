@@ -1,5 +1,5 @@
 {
-  "schema_version": "ecocompute-energy/1.1",
+  "schema_version": "ecocompute-energy/1.3",
   "benchmark": "ecocompute-energy-methodology",
   "follows_mlcommons_energy_reporting_conventions": true,
   "certified_benchmark_result": false,
@@ -47,6 +47,55 @@
       "sentencepiece": "0.2.2"
     },
     "matches_reference_pins": true
+  },
+  "power_trace": {
+    "format": "csv",
+    "columns": [
+      "t_s",
+      "power_w"
+    ],
+    "sample_rate_hz": 10,
+    "window": "generation",
+    "window_note": "reported energy = trapezoidal integral of a dedicated sampler running within [phases.measure_start_s, phases.measure_end_s] (generation only: model load, quantization and warm-up excluded; idle power not subtracted). The sidecar trace spans the whole run from before model load, so generation-only and whole-process windows can both be re-cut from it without re-running",
+    "files": [
+      {
+        "role": "primary",
+        "precision": "NF4",
+        "file": "power_trace.csv",
+        "samples": 402,
+        "dropped_samples": 0,
+        "phases": {
+          "trace_start_s": 0.0,
+          "load_start_s": 0.012,
+          "model_ready_s": 9.87,
+          "warmup_end_s": 12.44,
+          "measure_start_s": 12.51,
+          "measure_end_s": 51.9,
+          "quality_start_s": 51.95,
+          "quality_end_s": 58.3,
+          "trace_end_s": 58.31
+        }
+      },
+      {
+        "role": "fp16_baseline",
+        "precision": "FP16",
+        "file": "power_trace_fp16.csv",
+        "samples": 388,
+        "dropped_samples": 0,
+        "phases": {
+          "trace_start_s": 0.0,
+          "load_start_s": 0.011,
+          "model_ready_s": 21.3,
+          "warmup_end_s": 24.9,
+          "measure_start_s": 24.97,
+          "measure_end_s": 62.1,
+          "quality_start_s": 62.15,
+          "quality_end_s": 68.4,
+          "trace_end_s": 68.41
+        }
+      }
+    ],
+    "note": "Raw NVML GPU-package power samples of the whole run, written to sidecar CSV files (columns t_s, power_w; t_s is seconds on that file's own trace clock). The trace starts BEFORE the model is loaded, so the measurement window can be re-cut post hoc \u2014 unlike every bitsandbytes report published before schema 1.3, which kept only aggregates and could not be re-windowed. The reported total_energy_joules is unchanged by this option. ILLUSTRATIVE synthetic values, not from a real run."
   },
   "provenance": {
     "tool": "https://quantenergy.tech",
