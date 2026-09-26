@@ -394,6 +394,33 @@ python3 tools/check_regression.py ecocompute-out/energy.json
 # 0 = within the band, 1 = outside it, 2 = not gradeable
 ```
 
+## Protocol conformance check — schema-valid is not protocol-conformant
+
+The JSON schema checks **structure**. It cannot check cross-field semantics
+("an NF4 report must carry a same-session FP16 baseline", "`basis: measured`
+requires `direct-nvml`", "the thermal block must be present and honest").
+Those are Protocol v1.1 MUSTs, checked by the semantic validator:
+
+```bash
+python3 tools/validate.py ecocompute-out/energy.json
+# or via the entrypoint alias:
+python3 entrypoint.py validate ecocompute-out/energy.json --profile v1.1-core
+```
+
+Three verdicts, deliberately distinct:
+
+| Verdict | Meaning |
+|---|---|
+| `schema-valid` | structure passes `energy.schema.json` — and nothing more |
+| `protocol-conformant` | schema-valid **plus** every Protocol v1.1 MUST (v1.1-core profile) |
+| `dataset-eligible` | protocol-conformant plus reportability extras (power-trace sidecar, achieved sample rate, `basis: measured`); replication counts and review stay dataset-level |
+
+Exit codes are CI-friendly: `0` conformant/eligible, `1` schema-valid but
+violating (violations listed with the protocol clause number), `2`
+schema-invalid. Honest failure states pass: `steady_state_reached: false` and
+`thermal.basis: "unavailable"` are valid reports of reality, not violations —
+only fabrication fails.
+
 It compares `vs_fp16_energy_pct` with the published anchor(s) of the *same*
 model size (falling back to the fitted curve only when there is no anchor at
 that size — the fit is smooth across sizes and can sit tens of points off any

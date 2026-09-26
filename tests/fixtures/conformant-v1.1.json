@@ -1,0 +1,152 @@
+{
+ "schema_version": "ecocompute-energy/1.3",
+ "benchmark": "ecocompute-energy-methodology",
+ "follows_mlcommons_energy_reporting_conventions": true,
+ "certified_benchmark_result": false,
+ "scenario": "SingleStream",
+ "scenario_note": "Nominal label derived from batch size (1 -> SingleStream, else Offline). This is NOT enforced by MLPerf LoadGen: the container runs its own warmup/iterations loop and does not apply LoadGen timing constraints, so results are a supplemental energy methodology, not a certified benchmark.",
+ "timestamp_utc": "2026-09-24T23:46:09.189121Z",
+ "system_under_test": {
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "gpu_arch": "ada",
+  "accelerator_count": 1,
+  "host": "Linux-5.15.0-78-generic-x86_64-with-glibc2.31"
+ },
+ "workload": {
+  "model_name": "Qwen/Qwen2.5-3B",
+  "params_b": 3.0,
+  "precision": "NF4",
+  "batch_size": 1,
+  "context_length": 2048
+ },
+ "measurement": {
+  "method": "NVML on-device power sampling",
+  "sample_rate_hz": 10,
+  "tokens_per_run": 256,
+  "iterations": 10,
+  "warmup": 2,
+  "iterations_note": "Decode iterations within one run, not independent trials: a single report is n=1 however high this is."
+ },
+ "software": {
+  "python": "3.10.21",
+  "packages": {
+   "torch": "2.14.0",
+   "transformers": "4.57.6",
+   "bitsandbytes": "0.50.2",
+   "accelerate": "1.14.0",
+   "nvidia-ml-py": "13.610.43",
+   "sentencepiece": "0.2.2"
+  },
+  "torch_cuda": "13.0",
+  "nvidia_driver": "595.71.05",
+  "reference_pins": {
+   "transformers": "4.57.6",
+   "bitsandbytes": "0.43.3",
+   "accelerate": "1.14.0",
+   "nvidia-ml-py": "13.610.43",
+   "sentencepiece": "0.2.2"
+  },
+  "matches_reference_pins": false,
+  "differs_from_reference_pins": [
+   "bitsandbytes 0.50.2 != 0.43.3"
+  ],
+  "comparability_note": "This run did not use the published pins; bitsandbytes/transformers quantization kernels change between releases, so vs_fp16_energy_pct may not be directly comparable with reports produced by the image."
+ },
+ "provenance": {
+  "tool": "https://quantenergy.tech",
+  "dataset_doi": "10.5281/zenodo.19647290",
+  "rtx4090_deep_dive_doi": "10.5281/zenodo.22037483",
+  "paper_ssrn": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6854700",
+  "code": "https://github.com/hongping-zh/ecocompute-ai"
+ },
+ "notice": "Not a certified benchmark result. Energy reported in an MLCommons-style format. MLCOMMONS, MLPERF, and MLCUBE are trademarks of MLCommons Association, referenced here nominatively.",
+ "measurement_source": "direct-nvml",
+ "results": {
+  "total_energy_joules": 9076.849,
+  "tokens_generated": 2560,
+  "energy_per_token_mj": 3545.644,
+  "avg_power_watts": 96.3,
+  "throughput_tokens_per_s": 27.1,
+  "basis": "measured",
+  "fp16_energy_per_token_mj": 3426.387,
+  "vs_fp16_energy_pct": 3.5
+ },
+ "quality": {
+  "metric": "perplexity",
+  "basis": "measured",
+  "value": 5.8004,
+  "mean_nll": 1.757926,
+  "tokens_evaluated": 14123,
+  "windows": 14,
+  "seq_len": 1024,
+  "corpus": {
+   "name": "eval_text.txt",
+   "bytes": 60600,
+   "sha256": "22ac091a6383740d30f8e41ae144032c873c772db5e1c901112c1c330fdc5504"
+  },
+  "note": "Perplexity of this run's model on a fixed vendored text, scored by teacher forcing after the power sampler stopped, so it costs the energy figure nothing. Only delta_vs_fp16_pct is meaningful: the absolute value depends on this text and this tokenizer and is not comparable with published WikiText numbers. Perplexity is a proxy for language-model damage, not a downstream-task quality guarantee.",
+  "fp16_value": 4.5473,
+  "delta_vs_fp16_pct": 27.557
+ },
+ "power_trace": {
+  "format": "csv",
+  "columns": [
+   "t_s",
+   "power_w"
+  ],
+  "sample_rate_hz": 10,
+  "window": "generation",
+  "window_note": "reported energy = trapezoidal integral of a dedicated sampler running within [phases.measure_start_s, phases.measure_end_s] (generation only: model load, quantization and warm-up excluded; idle power not subtracted). The sidecar trace spans the whole run from before model load, so generation-only and whole-process windows can both be re-cut from it without re-running",
+  "files": [
+   {
+    "role": "primary",
+    "precision": "NF4",
+    "file": "power_trace.csv",
+    "samples": 1773,
+    "dropped_samples": 0,
+    "phases": {
+     "trace_start_s": 0.0,
+     "load_start_s": 0.0,
+     "model_ready_s": 541.917,
+     "warmup_end_s": 561.559,
+     "measure_start_s": 561.559,
+     "measure_end_s": 655.958,
+     "quality_start_s": 655.958,
+     "quality_end_s": 656.891,
+     "trace_end_s": 656.897
+    }
+   },
+   {
+    "role": "fp16_baseline",
+    "precision": "FP16",
+    "file": "power_trace_fp16.csv",
+    "samples": 849,
+    "dropped_samples": 0,
+    "phases": {
+     "trace_start_s": 0.0,
+     "load_start_s": 0.0,
+     "model_ready_s": 4.033,
+     "warmup_end_s": 17.641,
+     "measure_start_s": 17.641,
+     "measure_end_s": 84.671,
+     "quality_start_s": 84.671,
+     "quality_end_s": 85.506,
+     "trace_end_s": 85.605
+    }
+   }
+  ],
+  "note": "Raw NVML GPU-package power samples of the whole run, written to sidecar CSV files (columns t_s, power_w; t_s is seconds on that file's own trace clock). The trace starts BEFORE the model is loaded, so the measurement window can be re-cut post hoc \u2014 unlike every bitsandbytes report published before schema 1.3, which kept only aggregates and could not be re-windowed. The reported total_energy_joules is unchanged by this option."
+ },
+ "thermal": {
+  "mode": "cold",
+  "basis": "measured",
+  "warmup_runs": 2,
+  "cooldown_s": 300,
+  "temperature_start_c": 28.0,
+  "temperature_steady_c": null,
+  "temperature_end_c": 61.0,
+  "temperature_peak_c": 63.0,
+  "steady_state_reached": false,
+  "note": "fixture: cold start by enforced cooldown; steady not reached within window"
+ }
+}

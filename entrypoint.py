@@ -33,6 +33,7 @@ import re
 import sys
 import threading
 import time
+from pathlib import Path
 
 SCHEMA_VERSION = "ecocompute-energy/1.3"
 # 1.1 added the optional `quality` block; 1.2 (protocol 1.1) added `thermal`;
@@ -1177,9 +1178,32 @@ def main():
     for name, help_ in (("energy_estimate", "measure one config and write energy.json"),
                         ("run", "alias of energy_estimate")):
         _add_run_args(sub.add_parser(name, help=help_))
+    vp = sub.add_parser(
+        "validate",
+        help="validate a report: schema-valid is not protocol-conformant "
+             "(three verdicts: schema-valid / protocol-conformant / dataset-eligible)")
+    vp.add_argument("report", help="path to an energy.json report")
+    vp.add_argument("--profile", choices=("v1.1-core", "dataset-eligible"),
+                    default="v1.1-core",
+                    help="v1.1-core: every Protocol v1.1 MUST; "
+                         "dataset-eligible: core plus reportability extras")
+    vp.add_argument("--schema", default=None,
+                    help="path to the JSON schema (default: schema/energy.schema.json)")
+    vp.add_argument("--json", action="store_true",
+                    help="machine-readable output for CI")
     args = ap.parse_args()
     if args.task in ("energy_estimate", "run"):
         run(args)
+    elif args.task == "validate":
+        # Thin wrapper around tools/validate.py; no GPU, no side effects.
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "tools"))
+        import validate as _validate
+        argv = [args.report, "--profile", args.profile]
+        if args.schema:
+            argv += ["--schema", args.schema]
+        if args.json:
+            argv.append("--json")
+        sys.exit(_validate.main(argv))
 
 
 if __name__ == "__main__":
