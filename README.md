@@ -33,6 +33,33 @@ On any host with an NVIDIA GPU:
 curl -fsSL https://raw.githubusercontent.com/hongping-zh/ecocompute-mlcube/main/quickstart.sh | bash
 ```
 
+**Pinned variant (recommended for reproducibility).** The one-liner above
+executes whatever `main` currently holds. To run an exact, checksummed release
+instead — the same thing every time, immune to repository drift:
+
+```bash
+curl -fsSL -o quickstart.sh \
+  https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r1/quickstart.sh
+sha256sum quickstart.sh   # expect 5664b5a131de9458f8dadda6389de44cfc24e9cc51dbac5128d02023482ac1a7
+ECOCOMPUTE_REF=schema-1.3-r1 bash quickstart.sh   # native path checks out the release tag
+```
+
+and pin the image (docker path) by digest rather than the mutable `:latest`:
+
+```bash
+ECOCOMPUTE_IMAGE=ghcr.io/hongping-zh/ecocompute-mlcube@sha256:595e6ddf9658237fdfe222a9929cada024ea2d4dd1c5ae41195d024082247568
+```
+
+Release `schema-1.3-r1` (2026-09-26): the tightened schema (§ below), the
+`validate` subcommand, the semantic validator, and `ECOCOMPUTE_REF` support in
+the quickstart. Pinned artifacts of that release: report schema
+`501dc1f328270f0bd3221e1ec5c81d740308bdd87090b93f54758ea79b6efb04`,
+`tools/validate.py`
+`c5ca27907ffc68c91b6f28702515788210cc670e6d0330e9328788f5dd815205`; the image
+digest above is the build of commit `e52f878` — the release commit changes only
+host-side files (quickstart, README), so the container content is identical.
+
+
 That measures **NF4 and its own FP16 baseline** on TinyLlama-1.1B, scores both
 for perplexity on a fixed text so you also see what the quantization cost in
 quality, writes a schema-validated `energy.json` into `./ecocompute-out/`, and

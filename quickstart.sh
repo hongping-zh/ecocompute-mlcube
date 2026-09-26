@@ -25,6 +25,9 @@
 #   ECOCOMPUTE_GPU_ARGS    docker GPU flags (default "--gpus all"; e.g. --gpus "device=1")
 #   ECOCOMPUTE_NO_BUILD=1  fail instead of building locally when the pull fails
 #   ECOCOMPUTE_MODE        docker | native  (default: docker if usable, else native)
+#   ECOCOMPUTE_REF         git ref to clone (default: main). Pin a release tag
+#                          (e.g. schema-1.3-r1) for a reproducible native run;
+#                          existing checkouts at another ref are re-cloned.
 #   ECOCOMPUTE_SRC         checkout dir for native mode (default: on the data disk)
 #   ECOCOMPUTE_PREFETCH=1  ask the site for its prediction first and print it next
 #                          to your measurement (one HTTPS GET; off by default)
@@ -51,6 +54,7 @@ OUT="${ECOCOMPUTE_OUT:-$PWD/ecocompute-out}"
 read -r -a GPU_ARGS <<< "${ECOCOMPUTE_GPU_ARGS---gpus all}"
 CACHE="${ECOCOMPUTE_CACHE:-$HOME/.cache/ecocompute-hf}"
 REPO_URL="https://github.com/hongping-zh/ecocompute-mlcube.git"
+REPO_REF="${ECOCOMPUTE_REF:-main}"
 
 say()  { printf '\033[36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[warn]\033[0m %s\n' "$*" >&2; }
@@ -131,13 +135,18 @@ if [ "$MODE" = native ]; then
   else SRC="$HOME/.cache/ecocompute/src"
   fi
 
-  if [ -d "$SRC/.git" ]; then
-    say "updating $SRC"
+  if [ -d "$SRC/.git" ] && [ "$(git -C "$SRC" rev-parse --abbrev-ref HEAD 2>/dev/null || echo x)" = "${REPO_REF}" ]; then
+    say "updating $SRC at $REPO_REF"
     git -C "$SRC" pull --ff-only || warn "could not update the checkout; using it as-is."
+  elif [ -d "$SRC/.git" ]; then
+    say "checkout at $SRC is not at ref '$REPO_REF' - recloning"
+    rm -rf "$SRC"
+    mkdir -p "$(dirname "$SRC")"
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$SRC"
   else
     say "cloning into $SRC"
     mkdir -p "$(dirname "$SRC")"
-    git clone --depth 1 "$REPO_URL" "$SRC"
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$SRC"
   fi
 
   set +u                       # the shared env file predates this script's set -u
@@ -213,7 +222,7 @@ if ! docker pull "$IMAGE"; then
     warn "pull failed - building the image from source instead (~10-20 min, mostly torch)."
     BUILD_DIR="$(mktemp -d)"
     trap 'rm -rf "$BUILD_DIR"' EXIT
-    git clone --depth 1 "$REPO_URL" "$BUILD_DIR/src"
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$BUILD_DIR/src"
     IMAGE="ecocompute/mlcube-energy:local"
     docker build -t "$IMAGE" "$BUILD_DIR/src"
   fi
