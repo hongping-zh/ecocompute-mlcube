@@ -17,7 +17,8 @@
   "params_b": 3.0,
   "precision": "NF4",
   "batch_size": 1,
-  "context_length": 2048
+  "context_length": 2048,
+  "decoding": "greedy"
  },
  "measurement": {
   "method": "NVML on-device power sampling",
@@ -25,6 +26,7 @@
   "tokens_per_run": 256,
   "iterations": 10,
   "warmup": 2,
+  "window": "generation",
   "iterations_note": "Decode iterations within one run, not independent trials: a single report is n=1 however high this is."
  },
  "software": {
@@ -147,6 +149,7 @@
   "temperature_end_c": 61.0,
   "temperature_peak_c": 63.0,
   "steady_state_reached": false,
+  "arm_order": "randomized",
   "note": "fixture: cold start by enforced cooldown; steady not reached within window"
  }
 }

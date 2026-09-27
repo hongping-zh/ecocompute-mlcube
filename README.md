@@ -50,6 +50,22 @@ and pin the image (docker path) by digest rather than the mutable `:latest`:
 ECOCOMPUTE_IMAGE=ghcr.io/hongping-zh/ecocompute-mlcube@sha256:595e6ddf9658237fdfe222a9929cada024ea2d4dd1c5ae41195d024082247568
 ```
 
+Release `schema-1.3-r2` (2026-09-27): the semantic validator hardened. A
+hand-built negative probe (non-NVML `method`, `iterations: 1`, no window
+statement, no decoding record, no arm order, thermal block with mode+basis
+only) had sailed through as `protocol violations: 0 / protocol-conformant`.
+Now every protocol fact is either recorded or the report stops at
+schema-valid: NVML method for measured reports (§4.1.1), achieved rate ≥ 10 Hz
+(§4.1.2), 256 tokens / 10 iterations / greedy decoding (§4.3.2), generation
+window stated (§4.4.1), the FP16-baseline rule covers every non-FP16 precision
+(§4.2.1), measured thermal blocks need warm-up + cooldown + start/end/peak
+temperatures with the steady temperature excused only by the honest
+`steady_state_reached: false` (§4.6.1/4.6.4), arm order recorded as
+randomized/counterbalanced or a disclosed deviation (§4.6.2), and conformance
+is defined against schema 1.2+ (§4.5.2). Pinned artifact:
+`tools/validate.py` SHA-256
+`3dc166d2c2c0d7fbd6bbcb5a37a4cb2520feb04a432727a06e993f6d2310bee3`.
+
 Release `schema-1.3-r1` (2026-09-26): the tightened schema (§ below), the
 `validate` subcommand, the semantic validator, and `ECOCOMPUTE_REF` support in
 the quickstart. Pinned artifacts of that release: report schema

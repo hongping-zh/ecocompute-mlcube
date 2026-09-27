@@ -71,8 +71,14 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
 
     Clause numbers refer to the normative document
     'EcoCompute Measurement Protocol v1.1' (DOI 10.5281/zenodo.22958675).
+
+    A report that does not RECORD a protocol-required fact (window, decoding,
+    arm order, iterations, ...) cannot be verified against it - it is
+    schema-valid, never protocol-conformant. Honest failure states
+    (steady_state_reached: false, basis: unavailable) are still valid.
     """
     v: list[Violation] = []
+    sv = r.get("schema_version", "")
     w = r.get("workload", {}) or {}
     m = r.get("measurement", {}) or {}
     res = r.get("results", {}) or {}
@@ -83,6 +89,13 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
     src = r.get("measurement_source", "")
     precision = w.get("precision")
 
+    # --- 4.5.2 version floor: conformance is defined against 1.2+ ---
+    if sv == "ecocompute-energy/1.0":
+        v.append(Violation(
+            "5.2", f"schema_version {sv!r} predates the protocol floor "
+            "(conformance is defined against ecocompute-energy/1.2 or later)",
+            "a 1.0 report can be schema-valid but never protocol-conformant"))
+
     # --- 4.1 Power measurement ---
     if basis == "measured" and src != "direct-nvml":
         v.append(Violation(
@@ -90,13 +103,27 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
             f"(found {src!r})",
             "values derived from TDP or vendor typical power MUST NOT be "
             "reported as measurements"))
+    if basis == "measured":
+        method = str(m.get("method") or "")
+        if "nvml" not in method.lower():
+            v.append(Violation(
+                "1.1", f"measurement.method is {m.get('method')!r}; a measured "
+                "report MUST record NVML on-device GPU-package power sampling",
+                "any non-NVML method (TDP math, vendor tools, wall meter) "
+                "MUST NOT back a basis: measured claim"))
+    rate = m.get("sample_rate_hz")
+    if rate is not None and rate < 10:
+        v.append(Violation(
+            "1.2", f"sample_rate_hz is {rate!r}, below the 10 Hz minimum",
+            "the report MUST record the ACHIEVED rate, and it MUST be >= 10 Hz"))
 
-    # --- 4.2 Baseline ---
-    if precision in ("NF4", "INT8") and basis == "measured":
+    # --- 4.2 Baseline: EVERY non-FP16 precision, not just NF4/INT8 ---
+    if precision != "FP16" and basis == "measured":
         if res.get("vs_fp16_energy_pct") is None or res.get("fp16_energy_per_token_mj") is None:
             v.append(Violation(
-                "2.1", f"{precision} measured report lacks the same-session FP16 "
-                "baseline fields (vs_fp16_energy_pct / fp16_energy_per_token_mj)",
+                "2.1", f"{precision or 'quantized'} measured report lacks the "
+                "same-session FP16 baseline fields (vs_fp16_energy_pct / "
+                "fp16_energy_per_token_mj)",
                 "a quantized run without a same-session FP16 baseline MUST NOT "
                 "yield a vs-FP16 claim"))
 
@@ -106,16 +133,55 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
             "3.1", f"batch_size is {w.get('batch_size')!r}, protocol core is batch 1",
             "additional batch sizes are a 4.8 MAY and must be labelled "
             "separately; they do not qualify for the v1.1-core profile"))
-    if m.get("tokens_per_run") not in (None, 256):
+    tpr = m.get("tokens_per_run")
+    if tpr is None:
         v.append(Violation(
-            "3.2", f"tokens_per_run is {m.get('tokens_per_run')!r}, protocol core is 256",
+            "3.2", "tokens_per_run not recorded (protocol core is 256)",
+            "an unrecorded length cannot be verified; other token counts are a "
+            "4.8 MAY and must be labelled separately"))
+    elif tpr != 256:
+        v.append(Violation(
+            "3.2", f"tokens_per_run is {tpr!r}, protocol core is 256",
             "other token counts are a 4.8 MAY and must be labelled separately"))
+    it = m.get("iterations")
+    if it is None:
+        v.append(Violation(
+            "3.2", "decode iterations not recorded (protocol core is 10)",
+            "the iterations-to-aggregation rule (pooled ratio) presumes 10; an "
+            "unrecorded count cannot be verified"))
+    elif it != 10:
+        v.append(Violation(
+            "3.2", f"decode iterations is {it!r}, protocol core is 10",
+            "other counts are a 4.8 MAY and must be labelled separately"))
+    dec = w.get("decoding")
+    if dec is None:
+        v.append(Violation(
+            "3.2", "decoding strategy not recorded (protocol core is greedy)",
+            "record workload.decoding: greedy (do_sample=false); sampling "
+            "decoding is a 4.8 MAY and must be labelled separately"))
+    elif dec != "greedy":
+        v.append(Violation(
+            "3.2", f"workload.decoding is {dec!r}, protocol core is greedy "
+            "decoding", "sampling decoding is a 4.8 MAY, labelled separately"))
     if m.get("warmup") is None or m.get("warmup") < 1:
         v.append(Violation(
             "3.4", "warm-up missing or zero",
             "warm-up MUST precede measurement (excluded from the window by 4.4)"))
     if w.get("context_length") is None:
         v.append(Violation("3.3", "context_length not recorded"))
+
+    # --- 4.4 Measurement window ---
+    win = m.get("window")
+    if win is None:
+        v.append(Violation(
+            "4.1", "measurement window not stated (protocol core is the "
+            "generation window)",
+            "the window definition MUST travel with every energy claim (4.4.2); "
+            "record measurement.window: generation"))
+    elif win != "generation":
+        v.append(Violation(
+            "4.1", f"measurement.window is {win!r}; protocol core is the "
+            "generation window (model load, quantization and warm-up excluded)"))
 
     # --- 4.5 Report contents ---
     pkgs = sw.get("packages", {}) or {}
@@ -157,6 +223,44 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
                 "6.4", f"thermal.basis is {th.get('basis')!r}",
                 "a card without a sensor MUST report basis: unavailable "
                 "rather than inventing a value"))
+        if th.get("basis") == "measured":
+            # 4.6.1: warm-up count + temperatures at start/end/peak are
+            # unconditionally required; the steady temperature is excused
+            # only by the honest steady_state_reached: false (4.6.4).
+            for f in ("warmup_runs", "cooldown_s", "temperature_start_c",
+                      "temperature_end_c", "temperature_peak_c"):
+                if th.get(f) is None:
+                    v.append(Violation(
+                        "6.1", f"thermal.{f} missing (thermal.basis: measured "
+                        "MUST record it)",
+                        "4.6.1: warm-up count, cooldown and start/end/peak "
+                        "temperatures MUST be recorded"))
+            if th.get("temperature_steady_c") is None and th.get("steady_state_reached") is not False:
+                v.append(Violation(
+                    "6.1", "thermal.temperature_steady_c missing without the "
+                    "honest steady_state_reached: false marker",
+                    "either record the steady temperature, or declare the arm "
+                    "never settled (4.6.4)"))
+        # 4.6.2 arm order: randomised/counterbalanced, or a disclosed deviation
+        ao = th.get("arm_order")
+        if ao is None:
+            v.append(Violation(
+                "6.2", "arm order not recorded",
+                "MUST be randomised or counterbalanced; a fixed order is a "
+                "deviation that MUST be disclosed - record thermal.arm_order"))
+        elif ao in ("randomized", "counterbalanced"):
+            pass
+        elif isinstance(ao, str) and ao.lower().startswith("fixed"):
+            if not str(th.get("note") or "").strip():
+                v.append(Violation(
+                    "6.2", "fixed arm order recorded but the deviation is not "
+                    "disclosed (thermal.note is empty)",
+                    "a fixed order is a deviation that MUST be disclosed"))
+        else:
+            v.append(Violation(
+                "6.2", f"thermal.arm_order is {ao!r}",
+                "allowed: randomized, counterbalanced, or a fixed-order "
+                "disclosure such as 'fixed (deviation disclosed in note)'"))
         # honest failure states are VALID: steady_state_reached=false and
         # basis=unavailable pass - only fabrication fails.
 
