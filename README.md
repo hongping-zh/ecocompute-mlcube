@@ -508,6 +508,13 @@ A pass means "this build still measures what it used to", not "this confirms
 the curve": a single report is n=1, and a version mismatch with the published
 pins (printed as a caveat) accounts for part of any residual.
 
+## Adding an inference backend
+
+The runtime currently uses Hugging Face Transformers with bitsandbytes for
+quantisation. See the [backend contribution guide](docs/backends.md) for the
+current inference path, a proposed adapter boundary, and validation requirements
+for adding engines such as llama.cpp, vLLM or TensorRT-LLM.
+
 ## No-GPU behaviour
 
 If no NVIDIA GPU / NVML is present (or `--dry_run` is set), the container does **not**
