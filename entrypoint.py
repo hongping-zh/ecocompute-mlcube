@@ -468,6 +468,14 @@ def _assert_power_readable(pynvml, handle):
         ) from e
 
 
+def _read_gpu_temperature(pynvml, handle):
+    """Read GPU temperature in °C via NVML, or None if unavailable."""
+    try:
+        return pynvml.nvmlDeviceGetTemperature(handle, 0)  # 0 = NVML_TEMPERATURE_GPU
+    except Exception:
+        return None
+
+
 def _fit_prompt_to_context_length(tok, text, context_length):
     """Tokenize ``text``, then tile/truncate the ids to exactly ``context_length``.
 
@@ -483,7 +491,7 @@ def _fit_prompt_to_context_length(tok, text, context_length):
 
 
 def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, hz,
-                 quality=None, trace=False, context_length=2048):
+                 quality=None, trace=False, context_length=2048, thermal_mode="cold"):
     """Load, (quantize,) warm up, then measure energy over `iterations` decode runs.
 
     Raises PowerUnsupportedError if the card cannot report power, so the caller can
@@ -505,7 +513,8 @@ def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, 
         return _measure_with_handle(
             pynvml, handle, gpu_name, model_name, precision, batch_size,
             tokens, iterations, warmup, hz, torch, AutoModelForCausalLM, AutoTokenizer,
-            quality=quality, trace=trace, context_length=context_length)
+            quality=quality, trace=trace, context_length=context_length,
+            thermal_mode=thermal_mode)
     finally:
         try:
             pynvml.nvmlShutdown()
@@ -516,7 +525,11 @@ def measure_once(model_name, precision, batch_size, tokens, iterations, warmup, 
 def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_size,
                          tokens, iterations, warmup, hz, torch,
                          AutoModelForCausalLM, AutoTokenizer, quality=None, trace=False,
-                         context_length=2048):
+                         context_length=2048, thermal_mode="cold"):
+    # Thermal: read start temperature before anything else
+    temp_start = _read_gpu_temperature(pynvml, handle)
+    temp_peak = temp_start  # track peak as we go
+
     # Optional whole-run power trace (schema 1.3). Started BEFORE the tokenizer/
     # model load so that, unlike every published bitsandbytes report so far, the
     # window can be re-cut post hoc (generation-only vs whole-process) from the
@@ -579,6 +592,11 @@ def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_
         if tracer:
             phases["measure_end_s"] = tracer.elapsed()
 
+        # Thermal: read end temperature and update peak
+        temp_end = _read_gpu_temperature(pynvml, handle)
+        if temp_end is not None:
+            temp_peak = max(temp_peak or 0, temp_end)
+
         if sampler.error or len(sampler.samples) < 2:
             raise PowerUnsupportedError(
                 sampler.error or "NVML returned too few power samples to integrate energy")
@@ -613,6 +631,17 @@ def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_
             "throughput_tokens_per_s": round(total_new / wall, 1) if wall else None,
             "wall_seconds": round(wall, 3),
             "dropped_samples": sampler.dropped,
+            "thermal": {
+                "mode": thermal_mode,
+                "basis": "measured" if temp_start is not None else "unavailable",
+                "warmup_runs": warmup,
+                "cooldown_s": None,
+                "temperature_start_c": temp_start,
+                "temperature_steady_c": None,  # only for steady mode (not yet implemented)
+                "temperature_end_c": temp_end,
+                "temperature_peak_c": temp_peak,
+                "steady_state_reached": None,  # only for steady mode
+            },
         }
     finally:
         if tracer is not None:
@@ -719,6 +748,46 @@ def build_power_trace_block(files, sample_rate_hz):
     }
 
 
+def _build_thermal_block(p, measured, amd_gpu):
+    """Assemble the `thermal` block for the report.
+
+    If the measurement succeeded and returned thermal data, use it. Otherwise
+    (AMD fallback, dry run, measurement failure) return an "unavailable" block.
+    """
+    thermal_mode = p.get("thermal_mode", "cold")
+    warmup_runs = int(p.get("warmup", 2))
+
+    if measured and measured.get("thermal"):
+        t = measured["thermal"]
+        return {
+            "mode": t.get("mode", thermal_mode),
+            "basis": t.get("basis", "measured"),
+            "warmup_runs": warmup_runs,
+            "cooldown_s": t.get("cooldown_s"),
+            "temperature_start_c": t.get("temperature_start_c"),
+            "temperature_steady_c": t.get("temperature_steady_c"),
+            "temperature_end_c": t.get("temperature_end_c"),
+            "temperature_peak_c": t.get("temperature_peak_c"),
+            "steady_state_reached": t.get("steady_state_reached"),
+        }
+
+    # No measurement (AMD, dry run, or failure): thermal unavailable
+    return {
+        "mode": thermal_mode,
+        "basis": "unavailable",
+        "warmup_runs": warmup_runs,
+        "cooldown_s": None,
+        "temperature_start_c": None,
+        "temperature_steady_c": None,
+        "temperature_end_c": None,
+        "temperature_peak_c": None,
+        "steady_state_reached": None,
+        "note": ("no on-device measurement was performed" +
+                 (" (AMD GPU detected)" if amd_gpu else
+                  " (dry run or measurement failed)")),
+    }
+
+
 def build_report(p, measured, ref, fp16_measured=None, measure_error=None,
                  amd_gpu=None):
     arch = norm_arch(p["gpu_arch"])
@@ -762,6 +831,7 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None,
                 "report is n=1 however high this is."
             ),
         },
+        "thermal": _build_thermal_block(p, measured, amd_gpu),
         "software": collect_software(compare_pins=bool(measured)),
         "provenance": {
             "tool": "https://quantenergy.tech",
@@ -844,6 +914,8 @@ def load_params(args):
         v = getattr(args, k, None)
         if v is not None:
             p[k] = v
+    if getattr(args, "thermal_mode", None):
+        p["thermal_mode"] = args.thermal_mode
     if getattr(args, "quality_text", None):
         p["quality_text"] = args.quality_text
     if getattr(args, "no_quality_probe", False):
@@ -862,6 +934,7 @@ def load_params(args):
     p.setdefault("quality_probe", True)
     p.setdefault("quality_seq_len", DEFAULT_QUALITY_SEQ_LEN)
     p.setdefault("power_trace", False)
+    p.setdefault("thermal_mode", "cold")
     return p
 
 
@@ -1016,6 +1089,7 @@ def run(args):
                             int(p["batch_size"]))
     measured = fp16_measured = ref = None
     measure_error = None
+    thermal_mode = getattr(args, "thermal_mode", None) or p.get("thermal_mode", "cold")
     if gpu_available() and not args.dry_run and not amd_gpu:
         quality = resolve_quality(p)  # only the measuring path can score quality
         trace = bool(p.get("power_trace"))
@@ -1023,13 +1097,15 @@ def run(args):
             measured = measure_once(p["model_name"], p["precision"], int(p["batch_size"]),
                                     int(p["tokens"]), int(p["iterations"]), int(p["warmup"]),
                                     int(p["sample_rate_hz"]), quality=quality, trace=trace,
-                                    context_length=int(p.get("context_length", 2048)))
+                                    context_length=int(p.get("context_length", 2048)),
+                                    thermal_mode=thermal_mode)
             if p["precision"] != "FP16":
                 fp16_measured = measure_once(p["model_name"], "FP16", int(p["batch_size"]),
                                              int(p["tokens"]), int(p["iterations"]),
                                              int(p["warmup"]), int(p["sample_rate_hz"]),
                                              quality=quality, trace=trace,
-                                             context_length=int(p.get("context_length", 2048)))
+                                             context_length=int(p.get("context_length", 2048)),
+                                             thermal_mode=thermal_mode)
         except Exception as e:  # NVML/driver/arch/OOM issue -> fall back, don't crash
             measure_error = str(e)
             hint = _quantization_backend_hint(p["precision"])
@@ -1219,6 +1295,9 @@ def _add_run_args(parser):
     parser.add_argument("--warmup", type=int, default=None)
     parser.add_argument("--sample_rate_hz", type=int, default=None)
     parser.add_argument("--context_length", type=int, default=None)
+    parser.add_argument("--thermal_mode", default=None, choices=[None, "cold", "steady"],
+                        help="thermal protocol: 'cold' (default) = cool to idle then measure; "
+                             "'steady' = keep warming until three consecutive readings within 2°C")
     parser.add_argument("--no_quality_probe", action="store_true",
                         help="skip the perplexity probe (it runs after the power "
                              "sampler stops and costs the energy figure nothing, "
