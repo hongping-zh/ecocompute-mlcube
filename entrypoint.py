@@ -561,6 +561,8 @@ def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_
                   "(%d); clamping to %d" % (context_length, max_pos, max_pos),
                   file=sys.stderr)
             context_length = max_pos
+        # The probe text is deliberately repeated to reach the target length: a
+        # fixed probe keeps runs comparable (no corpus-dependent variance).
         ids = _fit_prompt_to_context_length(
             tok, "Explain in detail how large language models work.", context_length)
         input_ids = torch.tensor([ids] * batch_size, dtype=torch.long).to("cuda")
@@ -623,6 +625,7 @@ def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_
 
         result = {
             "gpu_name": gpu_name,
+            "context_length": context_length,  # effective value, after any clamp
             "quality": quality_result,
             "total_energy_joules": round(joules, 3),
             "tokens_generated": total_new,
@@ -817,7 +820,10 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None,
             "params_b": p.get("params_b"),
             "precision": p["precision"],
             "batch_size": int(p["batch_size"]),
-            "context_length": int(p.get("context_length", 2048)),
+            # When a measurement ran, record what was actually measured: the
+            # value may have been clamped to the model's maximum.
+            "context_length": int((measured or {}).get("context_length")
+                                  or p.get("context_length", 2048)),
         },
         "measurement": {
             "method": ("NVML on-device power sampling" if measured

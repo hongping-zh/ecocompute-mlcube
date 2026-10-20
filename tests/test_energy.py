@@ -802,6 +802,36 @@ def test_context_length_cli_flows_into_workload(tmp_path):
     assert report["workload"]["context_length"] == 512
 
 
+# --- clamped context_length propagation -------------------------------------
+
+def test_a_clamped_measurement_records_the_effective_context_length():
+    """When the model max clamps context_length, the report must say so."""
+    params = ecc.load_params(_ns(gpu_arch="blackwell", params_b=3,
+                                 context_length=8192))
+    report = ecc.build_report(params, measured=_measured(context_length=4096),
+                              ref=None)
+    jsonschema.validate(report, SCHEMA)
+    assert report["workload"]["context_length"] == 4096
+
+
+def test_an_unclamped_measurement_keeps_the_requested_context_length():
+    params = ecc.load_params(_ns(gpu_arch="blackwell", params_b=3,
+                                 context_length=1024))
+    report = ecc.build_report(params, measured=_measured(context_length=1024),
+                              ref=None)
+    jsonschema.validate(report, SCHEMA)
+    assert report["workload"]["context_length"] == 1024
+
+
+def test_a_measured_result_without_context_length_falls_back_to_params():
+    """Older measurement dicts (no context_length key) keep the params value."""
+    params = ecc.load_params(_ns(gpu_arch="blackwell", params_b=3,
+                                 context_length=512))
+    report = ecc.build_report(params, measured=_measured(), ref=None)
+    jsonschema.validate(report, SCHEMA)
+    assert report["workload"]["context_length"] == 512
+
+
 # --- thermal block -----------------------------------------------------------
 
 def test_thermal_block_is_present_in_dry_run_report(tmp_path):
