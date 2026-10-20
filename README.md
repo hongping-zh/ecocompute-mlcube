@@ -434,6 +434,24 @@ Schema **1.3** adds an optional `power_trace` object (present only for measured
 runs with `--power_trace`): the sidecar file names, sample counts and phase
 markers described above. Also optional and additive — older reports stay valid.
 
+Schema **1.3-r5** (2026-10-19) populates the `thermal` block: GPU temperature
+at measurement start/end/peak via NVML, with `basis: "measured"` for on-device
+reads or `basis: "unavailable"` for AMD/dry-run/measurement-failure paths. The
+`--thermal_mode` CLI flag accepts `cold` (default) or `steady` (future work).
+
+## context_length comparability (important)
+
+**Qualified submission** (directly comparable to v1.1.0 baseline):
+- `context_length = 2048`
+- Your ΔE% can be plotted against the published crossover curves and compared with the main dataset.
+
+**Exploratory submission** (separate comparability class):
+- `context_length ≠ 2048`
+- Your run forms a separate comparability class and is **not directly comparable** with v1.1.0 anchors (whose context_length was nominal ~20 tokens regardless of the recorded value, prior to PR #22).
+- Still valuable — fills the variable matrix — but plotted and analyzed separately.
+
+See [quantenergy.tech/contribute/](https://quantenergy.tech/contribute/#comparability) for details.
+
 ## Verified
 
 The container was exercised with the official MLCommons `mlcube` CLI (v0.0.9,
@@ -568,6 +586,12 @@ docker run --rm --entrypoint pip <built-image> freeze > requirements.lock.txt
   energy with the perplexity this container now reports, the 2026-08-20 one repeats INT8 three
   times per size: CV of the energy delta 0.6–3.9%)
 - Code: https://github.com/hongping-zh/ecocompute-ai
+
+## Acknowledgments
+
+- **@gkgoing** — first independent replication (2026-08): TinyLlama-1.1B in NF4 on an RTX 3050 Ti Laptop. The perplexity matched our RTX 4090 measurement to four decimals; the energy number did not — and that contrast is the reason this project exists. [Submission →](https://github.com/hongping-zh/ecocompute-mlcube/issues/15)
+- **@amarjithkumar2007-wq** — AMD GPU (ROCm) detection and fallback (PR #20, 2026-10); context_length applied in measurement path (PR #22, 2026-10).
+- **@yesheng-oss** — backend contribution guide (PR #21, 2026-10): documents how to add llama.cpp, vLLM, or TensorRT-LLM as inference engines.
 
 ## License
 

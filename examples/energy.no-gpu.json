@@ -25,6 +25,18 @@
     "tokens_per_run": 256,
     "iterations": 10
   },
+  "thermal": {
+    "mode": "cold",
+    "basis": "unavailable",
+    "warmup_runs": 2,
+    "cooldown_s": null,
+    "temperature_start_c": null,
+    "temperature_steady_c": null,
+    "temperature_end_c": null,
+    "temperature_peak_c": null,
+    "steady_state_reached": null,
+    "note": "no on-device measurement was performed (dry run or measurement failed)"
+  },
   "provenance": {
     "tool": "https://quantenergy.tech",
     "dataset_doi": "10.5281/zenodo.19647290",
