@@ -830,3 +830,103 @@ def test_a_measured_result_without_context_length_falls_back_to_params():
     report = ecc.build_report(params, measured=_measured(), ref=None)
     jsonschema.validate(report, SCHEMA)
     assert report["workload"]["context_length"] == 512
+
+
+# --- thermal block -----------------------------------------------------------
+
+def test_thermal_block_is_present_in_dry_run_report(tmp_path):
+    """Even the no-GPU path must emit a thermal block (basis=unavailable)."""
+    report = run_cli(tmp_path, "--gpu_arch", "blackwell", "--params_b", "3")
+    jsonschema.validate(report, SCHEMA)
+    thermal = report.get("thermal")
+    assert thermal is not None
+    assert thermal["basis"] == "unavailable"
+    assert thermal["mode"] == "cold"
+    assert thermal["temperature_start_c"] is None
+    assert thermal["temperature_end_c"] is None
+    assert thermal["temperature_peak_c"] is None
+
+
+def test_thermal_mode_cli_flows_into_report(tmp_path):
+    """--thermal_mode steady must appear in the thermal block."""
+    report = run_cli(tmp_path, "--thermal_mode", "steady",
+                     "--gpu_arch", "blackwell", "--params_b", "3")
+    jsonschema.validate(report, SCHEMA)
+    assert report["thermal"]["mode"] == "steady"
+
+
+def test_thermal_mode_default_is_cold(tmp_path):
+    """Without --thermal_mode, the block must say 'cold'."""
+    report = run_cli(tmp_path, "--gpu_arch", "blackwell", "--params_b", "3")
+    assert report["thermal"]["mode"] == "cold"
+
+
+def test_build_thermal_block_with_measured_data():
+    """When measurement succeeds and returns thermal data, use it."""
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    measured = _measured()
+    measured["thermal"] = {
+        "mode": "cold",
+        "basis": "measured",
+        "warmup_runs": 2,
+        "cooldown_s": None,
+        "temperature_start_c": 32,
+        "temperature_steady_c": None,
+        "temperature_end_c": 45,
+        "temperature_peak_c": 48,
+        "steady_state_reached": None,
+    }
+    report = ecc.build_report(params, measured=measured, ref=None)
+    jsonschema.validate(report, SCHEMA)
+    thermal = report["thermal"]
+    assert thermal["basis"] == "measured"
+    assert thermal["temperature_start_c"] == 32
+    assert thermal["temperature_end_c"] == 45
+    assert thermal["temperature_peak_c"] == 48
+
+
+def test_build_thermal_block_unavailable_without_measurement():
+    """Without measurement, thermal block must be basis=unavailable."""
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    report = ecc.build_report(params, measured=None,
+                              ref=ecc.reference_estimate(1.1, "ada", "NF4"))
+    jsonschema.validate(report, SCHEMA)
+    thermal = report["thermal"]
+    assert thermal["basis"] == "unavailable"
+    assert thermal["temperature_start_c"] is None
+    assert thermal["temperature_end_c"] is None
+
+
+def test_build_thermal_block_amd_fallback():
+    """AMD GPU path: thermal block must be basis=unavailable with null temps."""
+    params = ecc.load_params(_ns(gpu_arch="amd-rocm", params_b=1.1, precision="NF4"))
+    params["amd_gpu_name"] = "AMD Radeon RX 7900 XTX"
+    ref = ecc.reference_estimate(1.1, "amd-rocm", "NF4")
+    if ref is None:
+        ref = {"energy_per_token_mj": None, "fp16_energy_per_token_mj": None,
+               "vs_fp16_energy_pct": None, "basis": "unavailable"}
+    report = ecc.build_report(params, measured=None, ref=ref,
+                              amd_gpu="AMD Radeon RX 7900 XTX")
+    jsonschema.validate(report, SCHEMA)
+    thermal = report["thermal"]
+    assert thermal["basis"] == "unavailable"
+    assert thermal["temperature_start_c"] is None
+    assert "AMD" in thermal.get("note", "")
+
+
+def test_read_gpu_temperature_returns_none_on_failure():
+    """If NVML temperature read fails, _read_gpu_temperature returns None."""
+    fake_pynvml = types.ModuleType("pynvml")
+    def _boom(handle, sensor):
+        raise RuntimeError("NVML_TEMPERATURE_NOT_SUPPORTED")
+    fake_pynvml.nvmlDeviceGetTemperature = _boom
+    result = ecc._read_gpu_temperature(fake_pynvml, handle=object())
+    assert result is None
+
+
+def test_read_gpu_temperature_returns_value_on_success():
+    """If NVML temperature read succeeds, _read_gpu_temperature returns the value."""
+    fake_pynvml = types.ModuleType("pynvml")
+    fake_pynvml.nvmlDeviceGetTemperature = lambda handle, sensor: 42
+    result = ecc._read_gpu_temperature(fake_pynvml, handle=object())
+    assert result == 42
