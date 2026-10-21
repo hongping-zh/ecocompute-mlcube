@@ -77,6 +77,32 @@
       }
     },
     "measurement_source": {"type": "string"},
+    "engine": {
+      "type": "object",
+      "description": "(schema 1.3-r6) Optional. Identity of the inference engine that generated the tokens. Absent means the reference implementation: Hugging Face Transformers + bitsandbytes as pinned in requirements.lock.txt, so every existing report stays valid unchanged. Cross-engine runs (engine.name other than 'transformers') are valid measurements but engine-relative: not directly comparable with the transformers reference curves and not eligible for the v1.1 qualified pool (tools/validate.py enforces this at --profile dataset-eligible). Registry and rules: docs/backends.md.",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string", "description": "registry name: transformers, llama.cpp, vllm, tensorrt-llm (see docs/backends.md; plain string so an unregistered engine still records honestly)"},
+        "version": {"type": "string", "description": "engine version actually used, e.g. '4.46.3', 'b4325'"},
+        "backend": {"type": "string", "description": "execution target, e.g. cuda, cpu, rocm"},
+        "model_format": {"type": "string", "description": "honest artifact format, e.g. 'hf-safetensors', 'gguf-q4_k_m'. Never relabel a foreign format as workload.precision NF4/INT8: those mean bitsandbytes quantization in the transformers reference stack."},
+        "model_artifact": {
+          "type": "object",
+          "properties": {
+            "sha256": {"type": "string"},
+            "uri": {"type": "string"}
+          }
+        },
+        "tokenizer": {
+          "type": "object",
+          "properties": {
+            "source": {"type": "string", "description": "e.g. 'hf', 'embedded-gguf'"},
+            "verified_against_hf": {"type": "boolean", "description": "true when the engine's token counts reproduce the canonical HF tokenizer counts (acceptance A1, docs/backends.md)"}
+          }
+        },
+        "sync": {"type": "string", "description": "how completion of engine work is guaranteed before the power sampler stops, e.g. 'torch.cuda.synchronize', 'subprocess-join'"}
+      }
+    },
     "results": {
       "type": "object",
       "required": ["energy_per_token_mj", "basis"],
