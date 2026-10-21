@@ -67,7 +67,9 @@ def test_no_gpu_report_flags_each_gap():
         SCHEMA, "v1.1-core")
     assert verdict == "schema-valid"
     joined = "\n".join(viol)
-    for frag in ("warm-up", "software block missing", "thermal block missing"):
+    # the example now carries an honest thermal block (basis: unavailable),
+    # so the gap flagged there is the missing arm order, not a missing block
+    for frag in ("warm-up", "software block missing", "arm order not recorded"):
         assert frag in joined
 
 
