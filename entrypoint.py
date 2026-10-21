@@ -47,6 +47,11 @@ SCHEMA_VERSION = "ecocompute-energy/1.3"
 DEFAULT_API_BASE = "https://ecocompute-estimator.zhanghongping1982.workers.dev"
 DEFAULT_SITE = "https://quantenergy.tech"
 
+# Where native ROCm telemetry is tracked; the AMD fallback note and stderr hint
+# point here so users who hit the wall have a next step (and so AMD owners can
+# help prioritise by leaving their card model + ROCm version).
+ROCM_TELEMETRY_ISSUE = "https://github.com/hongping-zh/ecocompute-mlcube/issues/27"
+
 # ------------------------------------------------------------------ reference --
 # Compact mirror of the EcoCompute measured dataset (build/measured.csv, curves.json).
 # Used ONLY for the no-GPU dry-run path so the container is testable off-hardware;
@@ -132,22 +137,32 @@ def probe_gpu_name():
 
 
 def probe_amd_gpu_name():
-    """AMD GPU name on a ROCm host, or None when no AMD device is visible.
+    """AMD GPU name on a ROCm host, or None when the host can measure after all.
 
     ROCm builds of PyTorch map torch.cuda onto HIP, so torch.cuda.is_available()
-    is True there even though there is no NVIDIA driver for NVML to talk to.
-    Detect that case explicitly so the run can skip the doomed NVML attempt and
-    say why, instead of failing with an opaque NVML error.
+    is True there even though there is usually no NVIDIA driver for NVML to talk
+    to. Detect that case explicitly so the run can skip the doomed NVML attempt
+    and say why, instead of failing with an opaque NVML error.
 
-    Detection trusts torch.version.hip alone (that is what ROCm builds set) and
-    does not substring-match the device name: a name check would mislabel the
-    hip-nvcc edge case (ROCm PyTorch on NVIDIA hardware) the other way, and the
-    fallback here is the safe outcome for both.
+    One environment defeats the torch.version.hip signal: a ROCm build of
+    PyTorch installed on NVIDIA hardware (the hip-nvcc case), where NVML works
+    fine and the card is measurable. So before declaring an AMD host, try NVML:
+    when it initialises and its device-0 name matches torch's device-0 name,
+    the workload and the power sensor see the same NVIDIA card, and the normal
+    measurement path is safe. Names that differ (a mixed-vendor host, where
+    NVML could be reading a different card than the one torch runs on) keep the
+    conservative AMD fallback - measuring the wrong card is worse than
+    measuring nothing.
     """
     try:
         import torch
         if getattr(torch.version, "hip", None) and torch.cuda.is_available():
-            return torch.cuda.get_device_name(0)
+            torch_name = torch.cuda.get_device_name(0)
+            if torch_name and torch_name == probe_gpu_name():
+                # ROCm-built torch on an NVIDIA card that NVML also sees:
+                # same device on both sides - measurable, not an AMD host.
+                return None
+            return torch_name
     except Exception:
         pass
     return None
@@ -882,8 +897,12 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None,
                     "NVIDIA GPUs, so no on-device measurement was attempted, and "
                     "no EcoCompute reference exists for AMD (borrowing an NVIDIA "
                     "curve would be a cross-vendor extrapolation). Energy values "
-                    "are reported as unavailable; native ROCm power telemetry "
-                    "(rocm-smi) is future work." % amd_gpu)
+                    "are reported as unavailable. Native ROCm telemetry is "
+                    "tracked at %s — comment your card model and ROCm version "
+                    "there to help prioritise it. If this host is actually an "
+                    "NVIDIA card (e.g. ROCm-built PyTorch on NVIDIA hardware), "
+                    "please report the misdetection on the same issue."
+                    % (amd_gpu, ROCM_TELEMETRY_ISSUE))
         else:
             source = "ecocompute-dataset (no local GPU)"
             note = ("No local NVIDIA GPU detected — values derived from the published "
@@ -1087,7 +1106,9 @@ def run(args):
         print("[ecocompute-mlcube] AMD GPU detected (%s): NVML power telemetry is "
               "NVIDIA-only, so no on-device measurement is possible; energy values "
               "are reported as unavailable rather than extrapolated from an NVIDIA "
-              "curve." % amd_gpu, file=sys.stderr)
+              "curve. Help prioritise native ROCm telemetry (and report "
+              "misdetections) at %s" % (amd_gpu, ROCM_TELEMETRY_ISSUE),
+              file=sys.stderr)
     arch = norm_arch(p["gpu_arch"])
     if getattr(args, "prefetch", False):
         prefetch_prediction(getattr(args, "api_base", DEFAULT_API_BASE),

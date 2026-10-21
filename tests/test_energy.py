@@ -163,6 +163,28 @@ def test_probe_amd_gpu_name_reads_the_rocm_device(monkeypatch):
     assert ecc.probe_amd_gpu_name() == "AMD Radeon RX 7900 XTX"
 
 
+def test_probe_amd_gpu_name_measures_a_hip_nvcc_host(monkeypatch):
+    """ROCm-built torch on NVIDIA hardware (hip-nvcc): NVML sees the same card
+    torch runs on, so the host is measurable and must not be called AMD."""
+    monkeypatch.setitem(sys.modules, "torch",
+                        _fake_rocm_torch(hip="6.1", available=True,
+                                    name="NVIDIA GeForce RTX 4090"))
+    monkeypatch.setattr(ecc, "probe_gpu_name",
+                        lambda: "NVIDIA GeForce RTX 4090")
+    assert ecc.probe_amd_gpu_name() is None
+
+
+def test_probe_amd_gpu_name_keeps_fallback_when_names_disagree(monkeypatch):
+    """Mixed-vendor host: NVML initialises but may be reading a different card
+    than torch runs on - measuring the wrong card is worse than measuring
+    nothing, so the conservative AMD fallback stands."""
+    monkeypatch.setitem(sys.modules, "torch",
+                        _fake_rocm_torch(hip="6.1", available=True,
+                                    name="AMD Radeon RX 7900 XTX"))
+    monkeypatch.setattr(ecc, "probe_gpu_name", lambda: "NVIDIA A100")
+    assert ecc.probe_amd_gpu_name() == "AMD Radeon RX 7900 XTX"
+
+
 def test_probe_amd_gpu_name_survives_a_broken_torch(monkeypatch):
     """A torch whose CUDA probe raises must not take the run down with it."""
     fake = types.ModuleType("torch")
@@ -198,6 +220,10 @@ def test_amd_gpu_skips_nvml_and_reports_unavailable(tmp_path, monkeypatch):
     assert "AMD GPU" in report["measurement_source"]
     assert "AMD Radeon RX 7900 XTX" in report["results"]["note"]
     assert "unavailable" in report["results"]["note"]
+    # The downgrade must have an exit: the ROCm telemetry issue link and a
+    # misdetection invitation for hip-nvcc-style false positives.
+    assert "issues/27" in report["results"]["note"]
+    assert "misdetection" in report["results"]["note"]
 
 
 def test_amd_detection_ignores_an_nvidia_gpu_arch_flag(tmp_path, monkeypatch, capsys):
