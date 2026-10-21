@@ -130,6 +130,36 @@ stays valid unchanged.
 }
 ```
 
+Field by field:
+
+- `name` / `version` — the registry name and the exact version of the
+  engine that ran. Two reports are only directly comparable when these agree
+  (same standing as `software.packages`).
+- `backend` — the execution target (`cuda`, `cpu`, `rocm`). A mixed CPU/GPU
+  run must disclose it: NVML only samples the GPU package, so host-side
+  work is invisible to the energy figure.
+- `model_format` / `model_artifact` — the honest artifact format and, when
+  available, its hash: what was actually loaded, not what it resembles.
+- `tokenizer.source` — where the token counter comes from: `hf` (the
+  model's canonical `AutoTokenizer`) or `embedded-gguf` (the vocabulary
+  embedded in the GGUF file). Deliberately not a hash or version: the
+  canonical reference *is* the model's HF tokenizer, and the contract
+  cares about whether the engine's counts reproduce it — which is the next
+  field.
+- `tokenizer.verified_against_hf` — `true` when acceptance A1 passed: the
+  engine's counts equal the canonical HF tokenizer's for the same text.
+  When `false`, the token counts are engine-relative too, and every
+  energy-per-token figure from that run carries the caveat.
+- `sync` — **not** the engine's sync/async execution mode. It records how
+  the runner guaranteed that *all engine work had completed before the
+  power sampler stopped* — the mechanism that bounds the measurement
+  window: `torch.cuda.synchronize` for in-process PyTorch engines,
+  `subprocess-join` when the engine is a separate process (llama.cpp),
+  an explicit engine-completion API for vLLM-style engines. It is the
+  provenance counterpart of the `synchronize()` contract operation above.
+  A wrong sync point lets the sampler stop early (energy undercounted) or
+  late (overcounted), so the mechanism itself is provenance for the window.
+
 Design decisions (settled in [issue #19](https://github.com/hongping-zh/ecocompute-mlcube/issues/19)):
 
 - Engine identity is **not** folded into `measurement_source`. That field
