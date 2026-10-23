@@ -1,0 +1,39 @@
+name: Bug report
+description: The container, validator, schema, or docs do not behave as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you ran, what you expected, what you got. Include the exact command.
+      placeholder: |
+        mlcube run ...
+        python tools/validate.py output/energy.json
+        expected exit 0, got exit 2 with "thermal.note: None is not of type 'string'"
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      placeholder: |
+        container tag: ...
+        GPU (or "no GPU"): ...
+        driver / CUDA: ...
+        Python: ...
+        OS: ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Validator output / traceback (verbatim)
+      render: shell
+  - type: checkboxes
+    id: search
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the open issues and found no duplicate.
+          required: true

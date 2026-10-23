@@ -1,0 +1,59 @@
+name: Data submission (replication run)
+description: Submit a measured energy report from a real run on your hardware. One issue per run.
+title: "Replication: <GPU> · <model> <precision>"
+labels: [replication]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for running the container. This form captures what a good submission looks like —
+        the shape follows [gkgo's first replication](https://github.com/hongping-zh/ecocompute-mlcube/issues/15).
+        Every field you fill makes review faster; the [methodology page](https://quantenergy.tech/method/) explains what each one means.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Run summary
+      description: One line per fact, in this order.
+      placeholder: |
+        GPU: NVIDIA GeForce RTX 3050 Ti Laptop GPU (ampere)
+        model: TinyLlama/TinyLlama-1.1B-Chat-v1.0 (1.1B)
+        precision: NF4
+        ΔE vs FP16: -16.2%
+        basis: measured
+        independent trials (n): 1
+        energy per token: 1212.9 mJ
+        FP16 baseline: 1448.2 mJ/token
+        decode throughput: 32.8 tok/s
+        schema_version: (as printed in your energy.json)
+    validations:
+      required: true
+  - type: textarea
+    id: validator
+    attributes:
+      label: Validator output (verbatim)
+      description: Run tools/validate.py on your energy.json and paste the verdict line and any protocol readout exactly as printed — schema-valid is the expected verdict today. Do not edit the output.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: energy.json
+      description: Paste the report verbatim. Attaching the file as well is welcome — both is best.
+      render: json
+  - type: textarea
+    id: deviations
+    attributes:
+      label: Deviations from the defaults (optional)
+      description: Anything you changed away from the documented defaults (batch size, iterations, engine, driver), or anything odd about the environment.
+  - type: checkboxes
+    id: honesty
+    attributes:
+      label: Before submitting
+      options:
+        - label: This is a real run on the hardware named above.
+          required: true
+        - label: I understand this submission will be public and credited to my handle.
+          required: true
+        - label: Reviewers may follow up in this issue.
+          required: true
