@@ -64,6 +64,21 @@ To pin the image (docker path) by digest rather than the mutable `:latest`:
 ECOCOMPUTE_IMAGE=ghcr.io/hongping-zh/ecocompute-mlcube@sha256:<digest from the release page>
 ```
 
+Release `schema-1.3-r6` (2026-10-21): engine identity and honest token
+accounting for non-reference backends ([issue #19](https://github.com/hongping-zh/ecocompute-mlcube/issues/19)).
+An optional `engine` block (name, version, backend, model_format, artifact
+hash, tokenizer provenance, sync point) records what generated the tokens —
+absent means the transformers reference stack, so every existing report stays
+valid unchanged. The backend guide gains a five-item acceptance checklist
+(A1–A5): real token counts are an acceptance condition, enforced by a
+runner-authoritative re-tokenization cross-check, not a promise. A CPU
+reference fake adapter (`adapters/fake/`) plus contract tests — including a
+deliberately cheating adapter that must be caught — ship in CI with no GPU
+and no downloads. The validator now enforces: cross-engine runs are
+engine-relative (never pooled with the v1.1.0 transformers curves, same
+standing as `context_length != 2048`), and relabelling a foreign format
+(e.g. GGUF Q4_K_M) as `precision: NF4/INT8` is a violation.
+
 Release `schema-1.3-r3` (2026-10-11): supply-chain hardening. The quickstart
 is published as a checksummed release asset and verified before execution
 (`curl | bash` is no longer the documented way in); `--dry-run` prints the
@@ -439,16 +454,24 @@ at measurement start/end/peak via NVML, with `basis: "measured"` for on-device
 reads or `basis: "unavailable"` for AMD/dry-run/measurement-failure paths. The
 `--thermal_mode` CLI flag accepts `cold` (default) or `steady` (future work).
 
+Schema **1.3-r6** (2026-10-21) adds an optional `engine` object: the
+inference engine's identity (name, version, backend, model_format, artifact
+hash, tokenizer provenance, sync point). Absent means the transformers
+reference stack. Cross-engine runs are valid measurements but
+engine-relative — a separate comparability class, never pooled with the
+v1.1.0 transformers reference curves. See `docs/backends.md`.
+
 ## context_length comparability (important)
 
 **Qualified submission** (directly comparable to v1.1.0 baseline):
 - `context_length = 2048`
+- `engine` absent or `engine.name = transformers`
 - Your ΔE% can be plotted against the published crossover curves and compared with the main dataset.
 
 **Exploratory submission** (separate comparability class):
-- `context_length ≠ 2048`
+- `context_length ≠ 2048`, **or** `engine.name` other than `transformers` (schema 1.3-r6)
 - Your run forms a separate comparability class and is **not directly comparable** with v1.1.0 anchors (whose context_length was nominal ~20 tokens regardless of the recorded value, prior to PR #22).
-- Still valuable — fills the variable matrix — but plotted and analyzed separately.
+- Still valuable — fills the variable matrix — but plotted and analyzed separately. Cross-engine runs pair against their own engine-internal FP16 baseline (docs/backends.md, A3).
 
 See [quantenergy.tech/contribute/](https://quantenergy.tech/contribute/#comparability) for details.
 

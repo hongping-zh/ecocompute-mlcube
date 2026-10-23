@@ -170,6 +170,18 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
     if w.get("context_length") is None:
         v.append(Violation("3.3", "context_length not recorded"))
 
+    # --- 4.3 Engine identity (schema 1.3-r6): no relabelling ---
+    # NF4/INT8 mean bitsandbytes quantization in the transformers reference
+    # stack. A foreign engine (llama.cpp GGUF, ...) must not borrow them.
+    eng = r.get("engine") or {}
+    eng_name = str(eng.get("name") or "").strip().lower()
+    if eng and eng_name != "transformers" and precision in ("NF4", "INT8"):
+        v.append(Violation(
+            "3.2", f"engine.name is {eng.get('name')!r} but precision is "
+            f"{precision!r}: NF4/INT8 are bitsandbytes reference-stack labels",
+            "record the honest artifact in engine.model_format; relabelling a "
+            "foreign format (e.g. GGUF Q4_K_M as NF4) must not pass validation"))
+
     # --- 4.4 Measurement window ---
     win = m.get("window")
     if win is None:
@@ -286,6 +298,19 @@ def check_dataset_eligible(r: dict) -> list[Violation]:
         v.append(Violation(
             "C", f"results.basis is {res.get('basis')!r}, dataset release "
             "requires measured"))
+    # Engine-relative class (schema 1.3-r6, docs/backends.md): a cross-engine
+    # run is a valid measurement but belongs to its own comparability class
+    # with an engine-internal FP16 baseline — same standing as
+    # context_length != 2048 (qualified vs exploratory).
+    eng = r.get("engine") or {}
+    eng_name = str(eng.get("name") or "").strip().lower()
+    if eng_name and eng_name != "transformers":
+        v.append(Violation(
+            "C", f"engine.name is {eng.get('name')!r}: cross-engine runs are "
+            "engine-relative (same standing as context_length != 2048)",
+            "valid measurement, separate comparability class: pool it with "
+            "its engine-internal FP16 baseline (A3), not with the v1.1.0 "
+            "transformers reference curves"))
     return v
 
 
