@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a change to the container, schema, validator, or docs.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The current behavior and why it falls short. Requests that state a problem get priority over solution-only pitches.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like instead?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Where does it touch? (optional)
+      description: entrypoint.py / schema / tools/validate.py / docs — if you know.

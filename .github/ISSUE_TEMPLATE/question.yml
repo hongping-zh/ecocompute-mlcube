@@ -1,0 +1,19 @@
+name: Question
+description: Ask how something works before running or submitting.
+labels: [question]
+body:
+  - type: textarea
+    id: q
+    attributes:
+      label: Your question
+      description: What you were trying to do and where the docs lost you.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context (optional)
+      placeholder: |
+        GPU: ...
+        container tag: ...
+        doc page: ...
