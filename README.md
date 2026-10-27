@@ -238,7 +238,13 @@ reference report (clearly flagged, never a fabricated measurement).
 NVIDIA-only. On a ROCm host the entrypoint detects the AMD device, says so
 clearly, and reports the energy values as `unavailable` rather than borrowing
 an NVIDIA fitted curve — a cross-vendor extrapolation would be worse than no
-number. Native ROCm power telemetry (rocm-smi / rocprof) is future work.
+number. Native ROCm power telemetry (rocm-smi / rocprof) is tracked in
+[#27](https://github.com/hongping-zh/ecocompute-mlcube/issues/27), where AMD
+owners can also leave their card model and ROCm version to help prioritise it.
+A ROCm build of PyTorch on NVIDIA hardware (the hip-nvcc case) is still
+measured: the entrypoint cross-checks the NVML device name against torch's
+device before declaring an AMD host, and only falls back when NVML is
+unavailable or the names disagree.
 
 ```bash
 git clone https://github.com/hongping-zh/ecocompute-mlcube.git
