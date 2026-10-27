@@ -2,8 +2,11 @@
 
 This is a guide for contributors addressing [issue #19](https://github.com/hongping-zh/ecocompute-mlcube/issues/19).
 The current runtime uses Hugging Face Transformers and bitsandbytes. There is
-no backend selector or plugin interface yet: the interface below is a proposal
-for a small follow-up implementation, not an API available in the container.
+no backend selector in the container yet, but the adapter **contract** now
+exists in [`adapters/`](../adapters/) with a CPU reference implementation
+([`adapters/fake/`](../adapters/fake/)) and CI tests
+([`tests/test_fake_adapter.py`](../tests/test_fake_adapter.py)). Extracting
+the Transformers path from `entrypoint.py` into that contract is the follow-up.
 
 ## Follow the current measurement path
 
@@ -70,13 +73,131 @@ Transformers-compatible forward pass. An adapter without one must omit the
 quality result or report it as unavailable, rather than fabricate a comparable
 perplexity value.
 
+## Token counts are an acceptance condition
+
+The contract above makes `generate()` *promise* the actual newly generated
+token count. Different engines count differently — vLLM's
+`usage.completion_tokens` rules differ from transformers, GGUF embedded
+tokenizers differ from `tokenizer.json` in BOS/EOS handling, truncation can
+happen silently — and the denominator of the core metric (millijoules per
+generated token) inherits every error. Real token counting is therefore an
+**acceptance condition**, not a promise:
+
+**The runner is authoritative.** `generate()` must return both the generated
+texts and the engine's own token count (see
+[`adapters/base.py`](../adapters/base.py), `GenerationResult`). The runner
+re-tokenizes the returned texts with the model's canonical Hugging Face
+tokenizer and cross-checks the counts
+([`adapters/verify.py`](../adapters/verify.py)). A mismatch is recorded as
+`token_count_mismatch` and fails acceptance — correct counting is enforced
+structurally, not on trust, so an adapter that miscounts is caught even if
+the mistake is accidental.
+
+Minimal acceptance checklist for a new backend PR:
+
+| # | Acceptance | Judged by |
+| --- | --- | --- |
+| A1 | The same prompt yields the same prompt-token count under the adapter and the canonical HF tokenizer | exact integer equality, CI-testable |
+| A2 | The energy denominator equals actual newly generated tokens (prompt, warm-up and padding excluded), cross-verified by re-tokenization | CI-testable |
+| A3 | The FP16 baseline runs the same engine, version and session as the quantized arm | same-session pairing — already a Protocol MUST (§4.2.1) |
+| A4 | Engine name, version, model format/artifact hash and sync point are recorded in the `engine` block | schema + validator |
+| A5 | Truncation is explicit: when the model maximum clamps the requested context, the effective `context_length` is recorded | the PR #23 rule, extended to adapters |
+
+[`adapters/fake/`](../adapters/fake/) is the reference implementation: a
+deterministic CPU engine with an in-repo tokenizer — no downloads, no GPU.
+[`tests/test_fake_adapter.py`](../tests/test_fake_adapter.py) exercises the
+contract, including a deliberately **cheating** adapter whose prompt tokens
+leak into the denominator; the test asserts the runner-side cross-check
+catches it. A backend whose counting cannot pass a fake-adapter-level test
+does not need a GPU to be rejected.
+
+## Recording engine identity: the `engine` block (schema 1.3-r6)
+
+The schema now has an optional top-level `engine` object. Absent means the
+reference implementation (Hugging Face Transformers + bitsandbytes, pinned in
+[`requirements.lock.txt`](../requirements.lock.txt)); every existing report
+stays valid unchanged.
+
+```json
+"engine": {
+  "name": "llama.cpp",
+  "version": "b4325",
+  "backend": "cuda",
+  "model_format": "gguf-q4_k_m",
+  "model_artifact": {"sha256": "..."},
+  "tokenizer": {"source": "embedded-gguf", "verified_against_hf": true},
+  "sync": "subprocess-join"
+}
+```
+
+Field by field:
+
+- `name` / `version` — the registry name and the exact version of the
+  engine that ran. Two reports are only directly comparable when these agree
+  (same standing as `software.packages`).
+- `backend` — the execution target (`cuda`, `cpu`, `rocm`). A mixed CPU/GPU
+  run must disclose it: NVML only samples the GPU package, so host-side
+  work is invisible to the energy figure.
+- `model_format` / `model_artifact` — the honest artifact format and, when
+  available, its hash: what was actually loaded, not what it resembles.
+- `tokenizer.source` — where the token counter comes from: `hf` (the
+  model's canonical `AutoTokenizer`) or `embedded-gguf` (the vocabulary
+  embedded in the GGUF file). Deliberately not a hash or version: the
+  canonical reference *is* the model's HF tokenizer, and the contract
+  cares about whether the engine's counts reproduce it — which is the next
+  field.
+- `tokenizer.verified_against_hf` — `true` when acceptance A1 passed: the
+  engine's counts equal the canonical HF tokenizer's for the same text.
+  When `false`, the token counts are engine-relative too, and every
+  energy-per-token figure from that run carries the caveat.
+- `sync` — **not** the engine's sync/async execution mode. It records how
+  the runner guaranteed that *all engine work had completed before the
+  power sampler stopped* — the mechanism that bounds the measurement
+  window: `torch.cuda.synchronize` for in-process PyTorch engines,
+  `subprocess-join` when the engine is a separate process (llama.cpp),
+  an explicit engine-completion API for vLLM-style engines. It is the
+  provenance counterpart of the `synchronize()` contract operation above.
+  A wrong sync point lets the sampler stop early (energy undercounted) or
+  late (overcounted), so the mechanism itself is provenance for the window.
+
+Design decisions (settled in [issue #19](https://github.com/hongping-zh/ecocompute-mlcube/issues/19)):
+
+- Engine identity is **not** folded into `measurement_source`. That field
+  says where the *energy number* came from (direct-NVML vs dataset-derived);
+  the `engine` block says what *generated the text*. Two provenance axes, two
+  fields — and a structured object, because a free-text string could never be
+  filtered or grouped by machines.
+- `name` values come from a small registry: `transformers`, `llama.cpp`,
+  `vllm`, `tensorrt-llm`. Adding a name is a documentation change, not a
+  schema change (the field is a plain string, so an unregistered engine still
+  records honestly).
+- **No relabelling.** `workload.precision` values NF4 and INT8 mean
+  bitsandbytes quantization in the transformers reference stack. A llama.cpp
+  Q4_K_M run must not set `precision: "NF4"`; it records its honest artifact
+  in `engine.model_format`. The validator flags
+  `engine.name != transformers` combined with `precision: NF4/INT8` as a
+  relabelling violation. Which `workload.precision` values a non-reference
+  engine may carry at all is the remaining open format decision in issue #19
+  — until it is settled, a GGUF quantized arm cannot pass validation, and
+  that is the correct, honest behaviour.
+- **Cross-engine runs are engine-relative.** A report whose `engine.name` is
+  not `transformers` is a valid measurement but never poolable with the
+  v1.1.0 transformers reference curves: the validator rejects it at
+  `--profile dataset-eligible` with the same standing as
+  `context_length != 2048` (qualified vs exploratory). Energy deltas are an
+  engine + kernel property, not a model-size property; each comparability
+  class pairs against its own engine-internal FP16 baseline (A3).
+
 ## Add one engine in a focused follow-up
 
 1. **Agree on supported formats and provenance first.** The current CLI and
    report schema name FP16, NF4 and INT8. A llama.cpp GGUF format such as
-   Q4_K_M is not bitsandbytes NF4. Discuss new precision values and recording
-   engine/version/model-artifact identity in an issue before changing the
-   schema. Do not silently relabel formats to pass validation.
+   Q4_K_M is not bitsandbytes NF4. Engine/version/model-artifact identity is
+   now recorded in the optional `engine` block (schema 1.3-r6, above); which
+   `workload.precision` values a non-reference engine may carry is the
+   remaining open format decision in
+   [issue #19](https://github.com/hongping-zh/ecocompute-mlcube/issues/19).
+   Do not silently relabel formats to pass validation.
 2. **Make selection explicit.** Add a backend parameter to both the YAML and
    CLI paths, with Transformers as the default. Reject unsupported
    backend/precision combinations before downloading a model. Keep optional
@@ -111,9 +232,12 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q tests
 ```
 
-Add CPU tests using a small fake adapter for selection/parameter forwarding,
-unsupported precision, token accounting across batches, synchronisation and
-sampler boundaries, cleanup after generation failure, and fallback provenance.
+A reference CPU fake adapter ships in [`adapters/fake/`](../adapters/fake/)
+with contract tests in
+[`tests/test_fake_adapter.py`](../tests/test_fake_adapter.py). Extend those
+for your engine: selection/parameter forwarding, unsupported precision, token
+accounting across batches, synchronisation and sampler boundaries, cleanup
+after generation failure, and fallback provenance.
 Test the real runner around the adapter; do not assert only that a mock method
 was called. The tests should catch energy sampled during warm-up, prompt tokens
 included in the denominator, or a failed run labelled as measured.
