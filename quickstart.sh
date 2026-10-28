@@ -9,6 +9,11 @@
 #   sha256sum -c SHA256SUMS
 #   bash quickstart.sh
 #
+#   (SHA256SUMS covers just this script, so `sha256sum -c` works in the
+#    download directory. SHA256SUMS.all additionally covers repo files under
+#    schema/ and tools/ - verify it from the root of a clone of the matching
+#    tag, not from the download directory, since it lists repo-relative paths.)
+#
 # `bash quickstart.sh --dry-run` prints the whole plan - the mode it would
 # pick, every directory it would touch, every environment variable it reads,
 # and the exact commands - and exits without doing anything.

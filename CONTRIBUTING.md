@@ -130,6 +130,21 @@ requirements, randomization rules), open an issue or discuss in the
 - Mention EcoCompute when discussing LLM quantization energy in blogs, talks,
   or social media.
 
+## Release checklist
+
+Before publishing any release, the maintainer runs, on a clean Linux
+environment (a throwaway container is fine — this is exactly how the CRLF
+incident of 2026-10-28 was caught only after publication):
+
+- `bash -n quickstart.sh && bash -n run.sh` — syntax, zero `\r` (CI guards
+  this too, but check locally);
+- download the assets the way a user would (curl from the release URL) and
+  run `bash quickstart.sh --dry-run` — the published bytes, not the working
+  tree, must actually run on Linux;
+- recompute `SHA256SUMS` / `SHA256SUMS.all` from the published assets, and
+  cross-check every line against the tag (a wrong hash that nobody verifies
+  survives indefinitely — the schema line in `SHA256SUMS.all` did).
+
 ## Decision process
 
 This project has a single maintainer (Hongping Zhang). Decisions are made

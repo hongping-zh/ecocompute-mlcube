@@ -32,10 +32,17 @@ check it against the published checksum, then run it — never pipe a moving
 branch into a shell:
 
 ```bash
-curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r3/quickstart.sh
-curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r3/SHA256SUMS
+curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r4/quickstart.sh
+curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r4/SHA256SUMS
 sha256sum -c SHA256SUMS && bash quickstart.sh
 ```
+
+`SHA256SUMS` covers the script itself, so the check above works right in the
+download directory. `SHA256SUMS.all` additionally covers repo files
+(`schema/energy.schema.json`, `tools/validate.py`) — verify that one from the
+root of a clone of the matching tag (`git clone --depth 1 --branch
+schema-1.3-r4 …`), not from the release download directory, because it lists
+repo-relative paths.
 
 What you run is therefore a specific, checksummed, immutable version — not
 whatever `main` happens to hold at the moment you type the command. To see the
