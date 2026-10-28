@@ -4,8 +4,8 @@
 # Recommended way to run this (verify before you execute - a release is
 # immutable and checksummed; `main` is neither):
 #
-#   curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r3/quickstart.sh
-#   curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r3/SHA256SUMS
+#   curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r4/quickstart.sh
+#   curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r4/SHA256SUMS
 #   sha256sum -c SHA256SUMS
 #   bash quickstart.sh
 #
@@ -54,7 +54,7 @@
 #   ECOCOMPUTE_NO_BUILD=1  fail instead of building locally when the pull fails
 #   ECOCOMPUTE_MODE        docker | native  (default: docker if usable, else native)
 #   ECOCOMPUTE_REF         git ref to clone (default: main). Pin a release tag
-#                          (e.g. schema-1.3-r3) for a reproducible native run;
+#                          (e.g. schema-1.3-r4) for a reproducible native run;
 #                          existing checkouts at another ref are re-cloned.
 #   ECOCOMPUTE_SRC         checkout dir for native mode (default: on the data disk)
 #   ECOCOMPUTE_PREFETCH=1  ask the site for its prediction first and print it next

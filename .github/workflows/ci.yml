@@ -19,6 +19,17 @@ jobs:
       - run: pytest -q tests
       - name: shellcheck quickstart.sh
         run: sudo apt-get update && sudo apt-get install -y shellcheck && shellcheck quickstart.sh
+      # A CRLF line ending in any shell script breaks `curl ... | bash` on
+      # Linux with "pipefail: invalid option name" (found by an external
+      # reproducer, 2026-10-28). .gitattributes pins eol=lf on checkout;
+      # this guards the committed blobs themselves.
+      - name: shell scripts must be LF
+        run: |
+          bad=$(grep -rIl $'\r' --include='*.sh' . || true)
+          if [ -n "$bad" ]; then
+            echo "::error::CRLF line endings in: $bad"
+            exit 1
+          fi
 
   cpu-image:
     name: CPU image + MLCube contract

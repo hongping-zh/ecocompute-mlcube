@@ -1,3 +1,9 @@
 # The quality corpus must check out byte-identical everywhere: its sha256
 # is the comparability key between runs (see quality/README.md).
 quality/eval_text.txt text eol=lf
+
+# Shell scripts must be LF: a CRLF release asset kills `curl ... | bash` on
+# Linux with "pipefail: invalid option name" (found by an external
+# reproducer, 2026-10-28). Every *.sh in this repo — and every release
+# asset built from them — must be LF.
+*.sh text eol=lf
