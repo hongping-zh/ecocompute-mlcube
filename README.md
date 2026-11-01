@@ -1,11 +1,16 @@
 # EcoCompute Energy Methodology — MLCube
 
 [![CI](https://github.com/hongping-zh/ecocompute-mlcube/actions/workflows/ci.yml/badge.svg)](https://github.com/hongping-zh/ecocompute-mlcube/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/hongping-zh/ecocompute-mlcube)](https://github.com/hongping-zh/ecocompute-mlcube/releases/latest)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19647290.svg)](https://doi.org/10.5281/zenodo.19647290)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Dataset-yellow)](https://huggingface.co/datasets/hongpingzhang/ecocompute-energy-efficiency)
 
 **Challenge "quantize everything = green" with real energy measurements.**
+
+![The quantization energy crossover curve](assets/crossover_curve.png)
+
+*NF4 / INT8 / FP8 energy per token relative to FP16 at batch size 1, measured across 4 GPU architectures. Curves above the dashed baseline mean quantization **costs** energy — the crossover where they drop below it moves with model size, hardware, and library version. Data: [EcoCompute Benchmark Dataset v1.1.0](https://doi.org/10.5281/zenodo.19647290).*
 
 360+ configurations across 4 GPU architectures (Turing, Ampere, Ada, Blackwell).  
 Run in 3 commands. See where YOUR measurement falls on the crossover curve.
