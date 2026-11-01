@@ -1,646 +1,125 @@
 # EcoCompute Energy Methodology — MLCube
 
-<a href="https://quantenergy.tech/watt/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=watt-launch&amp;utm_content=ecocompute-mlcube">
-  <img src="https://img.shields.io/badge/Ask%20Watt-WorkBuddy%20Expert-0ea5e9?style=for-the-badge" alt="Ask Watt on WorkBuddy"/>
-</a>
-
-> **Want the decision, not the measurement?** Ask *Watt* — a WorkBuddy expert built on the same
-> measured dataset this container produces. Give it a GPU, a model size and an accuracy target and
-> it answers whether NF4/INT8 will raise or lower your inference energy, with a provenance label
-> (`measured` / `interpolated` / `estimated`), a confidence rating and the boundary conditions.
-> It says "no data" rather than guessing.
-> → **[Ask Watt in WorkBuddy](https://quantenergy.tech/watt/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=watt-launch&amp;utm_content=ecocompute-mlcube)**
 [![CI](https://github.com/hongping-zh/ecocompute-mlcube/actions/workflows/ci.yml/badge.svg)](https://github.com/hongping-zh/ecocompute-mlcube/actions/workflows/ci.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19647290.svg)](https://doi.org/10.5281/zenodo.19647290)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Dataset-yellow)](https://huggingface.co/datasets/hongpingzhang/ecocompute-energy-efficiency)
-A **supplemental energy-methodology container** for LLM inference. It measures the
-*energy* of one configuration — `(GPU × model × precision × batch)` — with direct
-on-device **NVML** power sampling, and writes an `energy.json` report whose fields
-align with **MLCommons-style inference energy reporting**.
 
-It packages the same inputs as the EcoCompute [`/v1/estimate`](https://quantenergy.tech)
-API (`model_name`, `precision`, `batch_size`, `gpu_arch`) as a portable
-[MLCube](https://mlcommons.org/en/mlcube/)-compatible container so the measurement
-is reproducible on any CUDA GPU.
+**Challenge "quantize everything = green" with real energy measurements.**
 
-> **This is a reference / methodology implementation, not a certified benchmark
-> run.** There is no accuracy target and no LoadGen. Numbers produced here are
-> **not certified benchmark results**.
+360+ configurations across 4 GPU architectures (Turing, Ampere, Ada, Blackwell).  
+Run in 3 commands. See where YOUR measurement falls on the crossover curve.
 
-## Quick start — three commands, no configuration
+> ⭐ **Star this repo if**: You care about honest energy claims in LLM inference,  
+> or want to challenge "quantization always saves power" with real measurements.
 
-On any host with an NVIDIA GPU. Download the script from an immutable release,
-check it against the published checksum, then run it — never pipe a moving
-branch into a shell:
+---
+
+## What is this?
+
+A **supplemental energy-methodology container** for LLM inference. It measures the *energy* of one configuration — `(GPU × model × precision × batch)` — with direct on-device **NVML** power sampling, and writes an `energy.json` report whose fields align with **MLCommons-style inference energy reporting**.
+
+**This is not a certified benchmark.** It's a reproducible measurement tool that packages the same inputs as the EcoCompute [`/v1/estimate`](https://quantenergy.tech) API as a portable [MLCube](https://mlcommons.org/en/mlcube/)-compatible container.
+
+---
+
+## Quick start — 3 commands
 
 ```bash
+# 1. Download the script from an immutable release
 curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r4/quickstart.sh
 curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r4/SHA256SUMS
-sha256sum -c SHA256SUMS && bash quickstart.sh
+
+# 2. Verify checksum
+sha256sum -c SHA256SUMS
+
+# 3. Run (auto-detects Docker vs native)
+bash quickstart.sh
 ```
 
-`SHA256SUMS` covers the script itself, so the check above works right in the
-download directory. `SHA256SUMS.all` additionally covers repo files
-(`schema/energy.schema.json`, `tools/validate.py`) — verify that one from the
-root of a clone of the matching tag (`git clone --depth 1 --branch
-schema-1.3-r4 …`), not from the release download directory, because it lists
-repo-relative paths.
-
-What you run is therefore a specific, checksummed, immutable version — not
-whatever `main` happens to hold at the moment you type the command. To see the
-whole plan before anything executes:
-
-```bash
-bash quickstart.sh --dry-run   # prints mode, directories touched, env, commands; executes nothing
-```
-
-**Supply-chain properties of this release** (details in the release notes):
-
-- the script and its `SHA256SUMS` are release assets — immutable once published;
-- the container image is published with a **digest** (below) so `:latest` drift
-  cannot change what you run;
-- an **SBOM** (CycloneDX, generated from the pinned `requirements.lock.txt` at
-  the release commit) ships as a release asset;
-- the image runs **non-root**: an unprivileged `ecocompute` user by default, and
-  `quickstart.sh` always passes `--user $(id -u):$(id -g)`;
-- `ECOCOMPUTE_READONLY=1` adds `--read-only` + a `tmpfs /tmp`, leaving only the
-  two bind mounts writable;
-- the release notes record the exact commit, the CI build and the image digest.
-
-To pin the image (docker path) by digest rather than the mutable `:latest`:
-
-```bash
-ECOCOMPUTE_IMAGE=ghcr.io/hongping-zh/ecocompute-mlcube@sha256:<digest from the release page>
-```
-
-Release `schema-1.3-r6` (2026-10-21): engine identity and honest token
-accounting for non-reference backends ([issue #19](https://github.com/hongping-zh/ecocompute-mlcube/issues/19)).
-An optional `engine` block (name, version, backend, model_format, artifact
-hash, tokenizer provenance, sync point) records what generated the tokens —
-absent means the transformers reference stack, so every existing report stays
-valid unchanged. The backend guide gains a five-item acceptance checklist
-(A1–A5): real token counts are an acceptance condition, enforced by a
-runner-authoritative re-tokenization cross-check, not a promise. A CPU
-reference fake adapter (`adapters/fake/`) plus contract tests — including a
-deliberately cheating adapter that must be caught — ship in CI with no GPU
-and no downloads. The validator now enforces: cross-engine runs are
-engine-relative (never pooled with the v1.1.0 transformers curves, same
-standing as `context_length != 2048`), and relabelling a foreign format
-(e.g. GGUF Q4_K_M) as `precision: NF4/INT8` is a violation.
-
-Release `schema-1.3-r3` (2026-10-11): supply-chain hardening. The quickstart
-is published as a checksummed release asset and verified before execution
-(`curl | bash` is no longer the documented way in); `--dry-run` prints the
-complete plan without executing it; the container image drops to a non-root
-user; `ECOCOMPUTE_READONLY=1` optionally makes the container root filesystem
-read-only. Assets: `quickstart.sh`, `SHA256SUMS` (just the script, so
-`sha256sum -c` needs no flags), `SHA256SUMS.all` (schema + validator + SBOM)
-and `sbom.cdx.json`.
-
-Release `schema-1.3-r2` (2026-09-27): the semantic validator hardened. A
-hand-built negative probe (non-NVML `method`, `iterations: 1`, no window
-statement, no decoding record, no arm order, thermal block with mode+basis
-only) had sailed through as `protocol violations: 0 / protocol-conformant`.
-Now every protocol fact is either recorded or the report stops at
-schema-valid: NVML method for measured reports (§4.1.1), achieved rate ≥ 10 Hz
-(§4.1.2), 256 tokens / 10 iterations / greedy decoding (§4.3.2), generation
-window stated (§4.4.1), the FP16-baseline rule covers every non-FP16 precision
-(§4.2.1), measured thermal blocks need warm-up + cooldown + start/end/peak
-temperatures with the steady temperature excused only by the honest
-`steady_state_reached: false` (§4.6.1/4.6.4), arm order recorded as
-randomized/counterbalanced or a disclosed deviation (§4.6.2), and conformance
-is defined against schema 1.2+ (§4.5.2). Pinned artifact:
-`tools/validate.py` SHA-256
-`3dc166d2c2c0d7fbd6bbcb5a37a4cb2520feb04a432727a06e993f6d2310bee3`.
-
-Release `schema-1.3-r1` (2026-09-26): the tightened schema (§ below), the
-`validate` subcommand, the semantic validator, and `ECOCOMPUTE_REF` support in
-the quickstart. Pinned artifacts of that release: report schema
-`501dc1f328270f0bd3221e1ec5c81d740308bdd87090b93f54758ea79b6efb04`,
-`tools/validate.py`
-`c5ca27907ffc68c91b6f28702515788210cc670e6d0330e9328788f5dd815205`; the image
-digest above is the build of commit `e52f878` — the release commit changes only
-host-side files (quickstart, README), so the container content is identical.
-
-
-That measures **NF4 and its own FP16 baseline** on TinyLlama-1.1B, scores both
-for perplexity on a fixed text so you also see what the quantization cost in
-quality, writes a schema-validated `energy.json` into `./ecocompute-out/`, and
-prints a link that overlays your point on the published curve.
-
-**How long it takes** is dominated by downloads, not by the measurement (a few
-minutes), and later runs reuse the caches. The one end-to-end run we have timed
-is the honest number to plan around: **57 minutes** on a China-hosted rented
-RTX 4090 in native mode, of which the ~2 GB model download was 5.5 minutes and
-nearly all the rest was pulling ~3 GB of torch/CUDA wheels from
-`download.pytorch.org`. Since then `autodl/00_setup.sh` prefers the configured
-(domestic) index for torch. A second run on that same instance, with every cache
-already warm, took **1m48s** end to end — that is the repeat-run number, not a
-first-run one. On a machine with fast registry access the docker path has less
-to download; we have not timed it.
-
-The script picks how to run itself, and says which it picked:
-
-| | when | what it does |
-|---|---|---|
-| **docker** | the Docker daemon answers | pulls `ghcr.io/…/ecocompute-mlcube:latest` and runs it with `--gpus all`; nothing is installed on the host |
-| **native** | no usable Docker — rented GPU instances (AutoDL, vast.ai, …) are themselves containers and cannot nest one | clones this repo and installs into a venv, reusing the host's CUDA PyTorch; keeps the checkout, venv and model cache on the data disk when there is one |
-
-Force either with `ECOCOMPUTE_MODE=docker` / `ECOCOMPUTE_MODE=native`. Both paths
-run the same `entrypoint.py`, the same pins from `requirements.txt` (native
-installs everything except torch, which must match the host driver) and the same
-10 decode iterations after 2 warmups as the published dataset.
-
-The native path cannot always get the pins — a Python 3.8 interpreter (AutoDL's
-default) or a lagging mirror can force older releases, and `bitsandbytes`
-NF4/INT8 kernels change between releases. So the report does not take the
-installer's word for it: `software` in every `energy.json` records the python,
-torch/CUDA, driver and package versions the run actually used, plus
-`matches_reference_pins` and a `differs_from_reference_pins` list. The summary
-prints the same thing. A mismatched run is still a real measurement; it just is
-not directly comparable with a run from the image, and now says so itself.
-
-To get the pins on a host whose default python is too old, point `ECO_PYTHON` at
-a ≥3.9 interpreter. A venv cannot change interpreter after creation, so an
-existing one has to go (which also means reinstalling torch):
-
-```bash
-rm -rf /root/autodl-tmp/ecocompute/venv        # or: ECO_RECREATE_VENV=1
-ECO_PYTHON=/root/miniconda3/envs/eco310/bin/python \
-  SKIP_DOWNLOAD=1 bash autodl/00_setup.sh
-```
-
-`00_setup.sh` refuses to continue if `ECO_PYTHON` does not exist or disagrees
-with the venv it would otherwise reuse, rather than quietly running on the old
-interpreter and producing a report that is flagged non-comparable an hour later.
-
-`bitsandbytes` also has to match torch's CUDA line — a torch wheel from a newer
-line makes the pinned `bitsandbytes` look for a `libbitsandbytes_cudaXXX.so` it
-does not ship, and the quantized run then dies with an opaque import error
-*after* the model download. Setup therefore runs a real 4-bit kernel as a
-preflight check. On failure it first upgrades `bitsandbytes` to a release that
-has kernels for the torch you already have — one small wheel from the index you
-are already using — and only then falls back to reinstalling torch from the
-cu121 index the image is built on (~2.5 GB from `download.pytorch.org`, which
-rented boxes often cannot reach, and which caps torch at 2.5.1, the last cu121
-build published). The upgrade leaves the published pins, so the report carries
-`software.differs_from_reference_pins` and `vs_fp16` is not directly comparable
-with image runs; `ECO_KEEP_PINS=1` skips it. Force an index up front with
-`ECO_TORCH_INDEX=https://download.pytorch.org/whl/cu121`.
-
-If neither repair works, native mode stops **before** downloading the model
-instead of spending your time on a run that can only produce
-`basis != measured`. `ECOCOMPUTE_ALLOW_FALLBACK=1` overrides that.
-
-No flags are needed: `gpu_arch` defaults to `auto` and is derived from the NVML
-device name, so a run cannot silently label an RTX 4090 as Blackwell. If you
-would rather read the script first, it is [`quickstart.sh`](quickstart.sh), and
-it prints every command it runs.
-
-Common overrides (all optional — on the quickstart you already downloaded and
-verified above):
-
-```bash
-ECOCOMPUTE_PRECISION=INT8 \
-ECOCOMPUTE_MODEL=Qwen/Qwen2.5-3B ECOCOMPUTE_PARAMS_B=3 \
-ECOCOMPUTE_PREFETCH=1 \
-  bash quickstart.sh
-```
-
-`--share` is always on in the quickstart (it only builds a link locally).
-`ECOCOMPUTE_PREFETCH=1` adds `--prefetch`, the one thing that talks to the site
-before measuring, so it stays opt-in — see below. `ECOCOMPUTE_QUALITY=0` turns
-off the perplexity probe.
-
-Or drive the image yourself (the image's default user is unprivileged; passing
-`--user` makes the report land in a directory you own):
-
-```bash
-mkdir -p out
-docker run --rm --gpus all --user "$(id -u):$(id -g)" \
-  -v "$PWD/out:/workspace/outputs" \
-  ghcr.io/hongping-zh/ecocompute-mlcube:latest energy_estimate \
-  --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 --params_b 1.1 \
-  --precision NF4 --gpu_arch auto --output_dir /workspace/outputs --share
-```
-
-Then publish the report — agreeing or disagreeing — at
-[quantenergy.tech/replications](https://quantenergy.tech/replications/#submit).
-
-The image (~8.8 GB unpacked: CUDA 12.1 runtime + torch + transformers +
-bitsandbytes) is built and pushed by
-[`.github/workflows/publish-image.yml`](.github/workflows/publish-image.yml) on
-every merge to `main`, and `docker pull ghcr.io/hongping-zh/ecocompute-mlcube:latest`
-works anonymously. If the pull fails anyway (offline, registry down),
-`quickstart.sh` says so and falls back to a local copy or a build from this
-repository — same result, ~10–20 minutes longer. If Docker cannot start the
-container with `--gpus all`, the script retries without GPU access so the
-pipeline still gets verified, and both the report (`basis` ≠ `measured`) and the
-printed summary say it is not a measurement.
-
-### Running from source
-
-No GPU needed for a smoke test — the container falls back to a dataset-derived
-reference report (clearly flagged, never a fabricated measurement).
-
-**AMD GPUs (ROCm).** On-device power telemetry is NVML-based and therefore
-NVIDIA-only. On a ROCm host the entrypoint detects the AMD device, says so
-clearly, and reports the energy values as `unavailable` rather than borrowing
-an NVIDIA fitted curve — a cross-vendor extrapolation would be worse than no
-number. Native ROCm power telemetry (rocm-smi / rocprof) is tracked in
-[#27](https://github.com/hongping-zh/ecocompute-mlcube/issues/27), where AMD
-owners can also leave their card model and ROCm version to help prioritise it.
-A ROCm build of PyTorch on NVIDIA hardware (the hip-nvcc case) is still
-measured: the entrypoint cross-checks the NVML device name against torch's
-device before declaring an AMD host, and only falls back when NVML is
-unavailable or the names disagree.
-
-```bash
-git clone https://github.com/hongping-zh/ecocompute-mlcube.git
-cd ecocompute-mlcube
-
-# 1) run the task directly (writes workspace/outputs/energy.json)
-python3 entrypoint.py energy_estimate --dry_run \
-    --parameters_file workspace/parameters/energy_params.yaml \
-    --output_dir workspace/outputs
-cat workspace/outputs/energy.json          # see examples/ for expected output
-
-# 2) or via the official MLCube CLI + Docker (no GPU)
-pip install mlcube mlcube-docker
-mlcube run --mlcube=mlcube.cpu.yaml --task=energy_estimate --platform=docker
-
-# 3) real measurement on an NVIDIA GPU
-mlcube run --mlcube=. --task=energy_estimate --platform=docker
-```
-
-Expected output shape: [`examples/energy.no-gpu.json`](examples/energy.no-gpu.json)
-(no-GPU reference) and [`examples/energy.measured.illustrative.json`](examples/energy.measured.illustrative.json)
-(on-GPU measured).
-
-**Compare your result online:** drag your `energy.json` onto the
-[**Run it yourself**](https://quantenergy.tech/?tab=run) tab at quantenergy.tech to
-overlay your measurement on the crossover curve (100% in-browser, nothing uploaded).
-The container's fields (`system_under_test.gpu_arch`, `workload.params_b`,
-`results.vs_fp16_energy_pct`, `results.basis`) map directly to the site's chart axes.
-
-### Compare straight from the terminal (`--prefetch` / `--share`)
-
-Two optional flags wire the run to the website — both are best-effort and never
-block or change the measurement:
-
-```bash
-python3 entrypoint.py energy_estimate \
-    --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
-    --precision NF4 --gpu_arch auto --params_b 1.1 \
-    --output_dir workspace/outputs --prefetch --share
-```
-
-- `--prefetch` — before measuring, asks the site estimator
-  (`/v1/estimate`) for its predicted energy delta vs FP16 and prints it, so you
-  can eyeball prediction vs. your measured result. Offline/timeout → silently
-  skipped.
-- `--share` — after measuring, prints (and writes `share_url.txt`) a link like
-  `https://quantenergy.tech/?tab=run&overlay=<base64url>`. The overlay point is
-  encoded **in the URL itself** — opening it restores your marker on the
-  crossover curve entirely in the browser. **Nothing is uploaded and no server
-  stores anything**, consistent with the site's privacy model. The same link is
-  also added to `energy.json` as `share_url`.
-
-### The quality probe (perplexity)
-
-Energy on its own cannot say whether a quantization was worth taking: a format
-that halves the joules and wrecks the model is not a win. So each measured run
-also scores the perplexity of the model it just measured, and reports
-`quality.delta_vs_fp16_pct` against the FP16 baseline **from the same run**.
-
-How it stays out of the energy figure:
-
-- it is a separate teacher-forcing forward pass, not the decode loop — you cannot
-  get a perplexity out of free generation;
-- it runs **after `sampler.stop()`**, with the model already loaded, so not one
-  joule of it is charged to `energy_per_token_mj`, and it adds seconds, not
-  minutes;
-- if it fails (OOM, an unusual head), the report says `quality.basis:
-  "unavailable"` with the error and the energy measurement stands unchanged.
-
-The text is vendored in [`quality/`](quality/) — two public-domain excerpts,
-~10.6k words — so a run needs no network and no `datasets` dependency, and every
-contributor scores the same bytes. Its sha256 is recorded in the report.
-
-**Read the delta, not the absolute number.** Perplexity depends on the text and
-the tokenizer, so the absolute value is not comparable with published WikiText
-figures or across models; only FP16-vs-quantized on identical bytes is. And
-perplexity is a proxy for language-model damage, not a downstream-task quality
-guarantee. `quality/README.md` says this in more detail.
-
-Useful when the vendored text is the wrong one for you: `--quality_text
-/path/to/your.txt` (its sha256 goes into the report, so a run on other bytes can
-never be silently compared with one on these), `--quality_seq_len`, and
-`--no_quality_probe` / `ECOCOMPUTE_QUALITY=0`.
-
-### The power-trace sidecar (`--power_trace`, schema 1.3)
-
-`energy.json` normally keeps only aggregates (`total_energy_j`, `avg_power_w`) —
-once a report is written, its measurement window can never be re-examined. That
-cost us a whole re-analysis once: the published bitsandbytes sessions could not
-be re-windowed (generation-only vs whole-process) without re-running, because the
-raw samples were thrown away. `--power_trace` institutionalises the lesson:
-
-- a second NVML sampler records the **whole run from before the model is
-  loaded** — load, quantization, warm-up, generation, quality probe — and is
-  dumped to `power_trace.csv` (`power_trace_fp16.csv` for the baseline run);
-- the report gains a `power_trace` block listing the files, sample counts and
-  **phase markers** (`load_start_s`, `model_ready_s`, `warmup_end_s`,
-  `measure_start_s`, `measure_end_s`, …) on each file's trace clock;
-- the reported `total_energy_joules` is computed by the *same dedicated
-  generation-window sampler as before* — enabling the sidecar changes no
-  reported number, it only adds what you can check later.
-
-With the sidecar, any reader can re-integrate the trace over a different window
-(e.g. whole-process including load, or decode-only) without re-running the GPU:
-the phase markers are the cut points. Files are plain two-column CSVs
-(`t_s,power_w`), one per measured run.
-
-## Layout
-
-```
-ecocompute-mlcube/
-├── mlcube.yaml          # MLCube descriptor: energy_estimate task, inputs/outputs, GPU platform
-├── mlcube.cpu.yaml      # CPU-only descriptor for GPU-less MLCube-contract verification / CI
-├── Dockerfile           # production, multi-stage: cuda + torch + transformers + bitsandbytes + NVML
-├── Dockerfile.cpu       # slim CPU image (verification/CI, no-GPU reference path only)
-├── entrypoint.py        # energy_estimate task: load → (quantize) → warmup → NVML 10Hz → infer → energy.json
-├── requirements.txt     # top-level runtime deps, exact == pins
-├── requirements.lock.txt# full transitive lock (pip freeze from the verified image)
-├── requirements-dev.txt # pyyaml, jsonschema, pytest (tests only)
-├── schema/energy.schema.json   # JSON Schema for the report (energy + optional quality fields)
-├── quality/             # fixed public-domain text the perplexity probe scores, + its sha256
-├── examples/            # sample energy.json outputs (no-GPU + measured), schema-valid
-├── tests/               # pytest: schema validity, param passing, no-GPU honesty
-├── tools/check_regression.py   # grade a measured report against the published curve (needs a GPU host)
-├── quickstart.sh        # zero-config one-liner (docker or, without it, a venv install)
-├── .github/workflows/ci.yml             # CI: pytest + shellcheck + CPU image + schema check
-├── .github/workflows/publish-image.yml  # builds and pushes ghcr.io/hongping-zh/ecocompute-mlcube
-├── LICENSE / NOTICE     # Apache-2.0
-└── workspace/
-    ├── parameters/energy_params.yaml   # run inputs (mirror of /v1/estimate)
-    ├── parameters/bert_bs32.yaml       # example alternate params (model swap, batch_size=32)
-    ├── models/          # HF cache / local weights
-    └── outputs/energy.json             # result
-```
-
-## Run
-
-With the MLCube CLI (recommended). The task name is **`energy_estimate`**:
-
-```bash
-pip install mlcube mlcube-docker
-
-# real measurement on an NVIDIA GPU (platform.accelerator_count=1 -> --gpus=all)
-mlcube run --mlcube=. --task=energy_estimate --platform=docker
-
-# change the run without editing defaults — swap the parameters file
-mlcube run --mlcube=. --task=energy_estimate \
-           parameters_file=parameters/bert_bs32.yaml output_dir=outputs_bert/
-```
-
-**No GPU? Verify the MLCube contract (build → param mount → energy.json) with the
-CPU descriptor** — this builds `Dockerfile.cpu` and runs the no-GPU reference path:
-
-```bash
-mlcube run --mlcube=mlcube.cpu.yaml --task=energy_estimate --platform=docker
-```
-
-Directly (development / CI):
-
-```bash
-# real measurement (requires an NVIDIA GPU + NVML)
-python3 entrypoint.py energy_estimate \
-    --parameters_file workspace/parameters/energy_params.yaml \
-    --output_dir workspace/outputs
-
-# force the no-GPU reference path (derives values from the published dataset)
-python3 entrypoint.py energy_estimate --dry_run \
-    --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
-    --precision NF4 --gpu_arch blackwell --params_b 1.1 \
-    --output_dir workspace/outputs
-```
-
-> Parameter passing follows the MLCube convention: task inputs/outputs are the
-> `parameters_file` (a YAML holding `model_name` / `precision` / `batch_size` /
-> `gpu_arch` / …) and `output_dir`. For dev/`docker run` use, the entrypoint also
-> accepts those same fields as CLI flags (e.g. `--model`, `--batch_size`, `--precision`).
-
-### Inputs (`energy_params.yaml`)
-
-| field | meaning |
+**What you get:**
+- `ecocompute-out/energy.json` — your measurement (NVML energy, throughput, perplexity)
+- A link to overlay your point on the published crossover curve at [quantenergy.tech](https://quantenergy.tech/?tab=run)
+- Supply-chain guarantees: checksummed script, non-root container, SBOM included
+
+**Time:** ~57 minutes first run (downloads), ~2 minutes repeat runs (all cached).
+
+👉 **[Full quickstart guide →](QUICKSTART.md)**
+
+---
+
+## Why this matters
+
+### The problem
+Most "green AI" claims rest on throughput or memory savings, not energy. A quantization that halves joules but wrecks model quality isn't a win — but without measuring both, you can't tell.
+
+### What we found
+- **NF4 crossover is hardware-dependent**: saves energy at 7B on Ada, costs energy at 3B on Blackwell (with bitsandbytes 0.45). The break-even point moved from ~5B to 1.1–1.5B after a library update (bitsandbytes 0.50.2) — **even the version number matters**.
+- **INT8 often costs energy**: +55% to +256% on consumer GPUs, with negligible perplexity damage. The problem is speed, not accuracy.
+- **FP8 is two different failures**: weight-only degrades with size (+187% to +816%), dynamic-activation degrades the other way (+323% to +83%). Saying "FP8 energy" without naming the code path is meaningless.
+
+### What you can do
+1. **Run your own measurement** — 3 commands, any NVIDIA GPU
+2. **Compare with published data** — overlay your point on the crossover curve
+3. **Submit your replication** — agree or disagree, publish at [quantenergy.tech/replications](https://quantenergy.tech/replications/#submit)
+
+---
+
+## Who uses this?
+
+- **Researchers** validating energy claims before deployment
+- **MLOps teams** comparing quantization strategies on their hardware
+- **Sustainability auditors** checking "green AI" marketing against measurements
+- **Contributors** extending the dataset with independent replications
+
+**Real-world example:** A contributor ran TinyLlama-1.1B NF4 on an RTX 3050 Ti Laptop. The perplexity matched our RTX 4090 measurement to four decimals; the energy number did not — and that contrast is the reason this project exists. → [Submission](https://github.com/hongping-zh/ecocompute-mlcube/issues/15)
+
+---
+
+## Want the decision, not the measurement?
+
+Ask **Watt** — a WorkBuddy expert built on the same measured dataset this container produces. Give it a GPU, a model size and an accuracy target, and it answers whether NF4/INT8 will raise or lower your inference energy, with a provenance label (`measured` / `interpolated` / `estimated`), a confidence rating and the boundary conditions. It says "no data" rather than guessing.
+
+→ **[Ask Watt in WorkBuddy](https://quantenergy.tech/watt/?utm_source=github&utm_medium=readme&utm_campaign=watt-launch&utm_content=ecocompute-mlcube)**
+
+---
+
+## Documentation
+
+| Document | What's in it |
 |---|---|
-| `model_name` | HF model id or local path |
-| `params_b` | billions of parameters (used by the no-GPU reference path) |
-| `precision` | `FP16` \| `NF4` \| `INT8` (weight-only quantization) |
-| `batch_size` | `1` → SingleStream scenario; `>1` → Offline |
-| `gpu_arch` | `auto` (default — from the NVML device name) \| `turing` \| `ampere` \| `ada` \| `hopper` \| `blackwell` \| a GPU name |
-| `tokens`, `iterations`, `warmup`, `sample_rate_hz` | measurement controls |
-| `quality_probe`, `quality_seq_len` | perplexity probe: on by default, 1024-token windows |
-| `power_trace` | schema 1.3 sidecar: raw NVML samples of the whole run (`--power_trace`), so the window can be re-cut post hoc |
+| **[QUICKSTART.md](QUICKSTART.md)** | Complete setup guide, Docker vs native, AutoDL/vast.ai, common overrides, running from source |
+| **[TECHNICAL.md](TECHNICAL.md)** | JSON schema, validation, protocol conformance, backend contribution guide, reproducible builds |
+| **[docs/backends.md](docs/backends.md)** | How to add llama.cpp, vLLM, or TensorRT-LLM as inference engines |
 
-### Output (`energy.json`)
-
-Fields align with MLCommons-style inference energy reporting: total joules, tokens,
-`energy_per_token_mj` (= J / 1k tokens), `avg_power_watts`,
-`throughput_tokens_per_s`, plus a signed `vs_fp16_energy_pct` (negative = quantization
-saves energy). Every result carries a `basis` (`measured` / `interpolated` /
-`extrapolated`) and a `measurement_source`. `software` records the versions the
-run used and whether they are the published pins; `measurement.iterations` is
-decode iterations *within* one run, so a single report is n=1 no matter how high
-it is. See `schema/energy.schema.json`.
-
-Schema **1.1** adds an optional `quality` object (perplexity, the FP16 baseline,
-`delta_vs_fp16_pct`, tokens scored and the corpus sha256). It is optional and
-additive: 1.0 reports are still valid, and a run without the probe has no
-`quality` key rather than a null one.
-
-Schema **1.3** adds an optional `power_trace` object (present only for measured
-runs with `--power_trace`): the sidecar file names, sample counts and phase
-markers described above. Also optional and additive — older reports stay valid.
-
-Schema **1.3-r5** (2026-10-19) populates the `thermal` block: GPU temperature
-at measurement start/end/peak via NVML, with `basis: "measured"` for on-device
-reads or `basis: "unavailable"` for AMD/dry-run/measurement-failure paths. The
-`--thermal_mode` CLI flag accepts `cold` (default) or `steady` (future work).
-
-Schema **1.3-r6** (2026-10-21) adds an optional `engine` object: the
-inference engine's identity (name, version, backend, model_format, artifact
-hash, tokenizer provenance, sync point). Absent means the transformers
-reference stack. Cross-engine runs are valid measurements but
-engine-relative — a separate comparability class, never pooled with the
-v1.1.0 transformers reference curves. See `docs/backends.md`.
-
-## context_length comparability (important)
-
-**Qualified submission** (directly comparable to v1.1.0 baseline):
-- `context_length = 2048`
-- `engine` absent or `engine.name = transformers`
-- Your ΔE% can be plotted against the published crossover curves and compared with the main dataset.
-
-**Exploratory submission** (separate comparability class):
-- `context_length ≠ 2048`, **or** `engine.name` other than `transformers` (schema 1.3-r6)
-- Your run forms a separate comparability class and is **not directly comparable** with v1.1.0 anchors (whose context_length was nominal ~20 tokens regardless of the recorded value, prior to PR #22).
-- Still valuable — fills the variable matrix — but plotted and analyzed separately. Cross-engine runs pair against their own engine-internal FP16 baseline (docs/backends.md, A3).
-
-See [quantenergy.tech/contribute/](https://quantenergy.tech/contribute/#comparability) for details.
-
-## Verified
-
-The container was exercised with the official MLCommons `mlcube` CLI (v0.0.9,
-docker platform):
-
-- `mlcube describe --mlcube=mlcube.yaml` — descriptor accepted; task
-  `energy_estimate` with `inputs=[parameters_file]`, `outputs=[output_dir]`.
-- `mlcube run --mlcube=mlcube.cpu.yaml --task=energy_estimate` — image built from
-  `Dockerfile.cpu`, workspace mounted, `workspace/outputs/energy.json` produced.
-- Parameter swap (`parameters_file=parameters/bert_bs32.yaml`) produced a distinct
-  report (`bert-base-uncased`, `batch_size=32` → Offline scenario).
-- Both reports validate against `schema/energy.schema.json`.
-
-## Testing
-
-```bash
-pip install -r requirements-dev.txt
-python -m pytest tests/ -q
-```
-
-The suite runs the `energy_estimate` task through its real CLI and asserts that
-every report validates against the schema, that parameters flow into the output,
-that `batch_size` selects the scenario, and that the no-GPU path never labels a
-result as `measured`. CI (`.github/workflows/mlcube-verify.yml`) runs these tests
-plus a full `Dockerfile.cpu` build + container run + schema check on every push/PR.
-
-## Regression check against the published curve
-
-After a measured run, grade it against the published fit:
-
-```bash
-python3 tools/check_regression.py ecocompute-out/energy.json
-# 0 = within the band, 1 = outside it, 2 = not gradeable
-```
-
-## Protocol conformance check — schema-valid is not protocol-conformant
-
-The JSON schema checks **structure**. It cannot check cross-field semantics
-("an NF4 report must carry a same-session FP16 baseline", "`basis: measured`
-requires `direct-nvml`", "the thermal block must be present and honest").
-Those are Protocol v1.1 MUSTs, checked by the semantic validator:
-
-```bash
-python3 tools/validate.py ecocompute-out/energy.json
-# or via the entrypoint alias:
-python3 entrypoint.py validate ecocompute-out/energy.json --profile v1.1-core
-```
-
-Three verdicts, deliberately distinct:
-
-| Verdict | Meaning |
-|---|---|
-| `schema-valid` | structure passes `energy.schema.json` — and nothing more |
-| `protocol-conformant` | schema-valid **plus** every Protocol v1.1 MUST (v1.1-core profile) |
-| `dataset-eligible` | protocol-conformant plus reportability extras (power-trace sidecar, achieved sample rate, `basis: measured`); replication counts and review stay dataset-level |
-
-Exit codes are CI-friendly: `0` conformant/eligible, `1` schema-valid but
-violating (violations listed with the protocol clause number), `2`
-schema-invalid. Honest failure states pass: `steady_state_reached: false` and
-`thermal.basis: "unavailable"` are valid reports of reality, not violations —
-only fabrication fails.
-
-It compares `vs_fp16_energy_pct` with the published anchor(s) of the *same*
-model size (falling back to the fitted curve only when there is no anchor at
-that size — the fit is smooth across sizes and can sit tens of points off any
-single one). The band is `k * resid_std` (default `k=2`), i.e. the fit's own
-residual dispersion; it is **not** a confidence interval.
-
-Two deliberate limits:
-
-- It refuses to grade a report whose `basis` is not `measured`: an
-  interpolated report is derived *from* the curve, so checking it against the
-  curve is circular.
-- It cannot run in CI — GitHub-hosted runners have no NVIDIA GPU. Run it on the
-  GPU host after `quickstart.sh`.
-
-A pass means "this build still measures what it used to", not "this confirms
-the curve": a single report is n=1, and a version mismatch with the published
-pins (printed as a caveat) accounts for part of any residual.
-
-## Adding an inference backend
-
-The runtime currently uses Hugging Face Transformers with bitsandbytes for
-quantisation. See the [backend contribution guide](docs/backends.md) for the
-current inference path, a proposed adapter boundary, and validation requirements
-for adding engines such as llama.cpp, vLLM or TensorRT-LLM.
-
-## No-GPU behaviour
-
-If no NVIDIA GPU / NVML is present (or `--dry_run` is set), the container does **not**
-fabricate a measurement. It emits values derived from the **published EcoCompute
-dataset** (Zenodo DOI `10.5281/zenodo.19647290`), flagged
-`measurement_source: "ecocompute-dataset (no local GPU)"` and with an explicit note.
-
-The same honesty guarantee holds if a GPU **is** present but NVML power telemetry is
-unavailable (some Turing / consumer / vGPU cards, or a driver that returns
-`NVML_ERROR_NOT_SUPPORTED`): the on-device path is probed first, and on failure the
-container falls back to the dataset path with
-`measurement_source: "ecocompute-dataset (on-device measurement failed)"` and
-`basis != "measured"` — it never labels a fallback as a real measurement, and it does
-not crash. A single dropped power read never aborts a run (see `results.dropped_samples`).
-
-## Scope & limitations (not a benchmark)
-
-- **No LoadGen.** The `scenario` field (`SingleStream` / `Offline`) is a *nominal* label
-  derived from `batch_size`; it is **not** enforced by MLPerf LoadGen. The container runs
-  its own warmup/iterations loop and applies **no** LoadGen timing constraints. This is a
-  supplemental **energy methodology** container, not a certified benchmark
-  (`certified_benchmark_result: false`). Every report carries this in `scenario_note`.
-- **No accuracy target.** Only energy/throughput are reported.
-- Report fields follow MLCommons-style energy-reporting conventions
-  (`follows_mlcommons_energy_reporting_conventions: true`) but are not certified results.
-
-## Reproducible builds
-
-`requirements.txt` pins the top-level runtime deps to exact `==` versions, and
-`requirements.lock.txt` pins **all** transitive dependencies (a `pip freeze` captured
-from the verified CUDA image). The `Dockerfile` installs from the lock so builds are
-deterministic — important because `bitsandbytes` NF4/INT8 kernels (and `torch`) change
-their numeric behaviour between releases. Regenerate the lock with:
-
-```bash
-docker run --rm --entrypoint pip <built-image> freeze > requirements.lock.txt
-```
+---
 
 ## Provenance
 
-- Tool: https://quantenergy.tech
-- Paper (SSRN #6854700): *Weight-Only Quantization Does Not Always Save Energy…* (under review)
-- Main dataset DOI: `10.5281/zenodo.19647290` (the source of the no-GPU reference values)
-- RTX 4090 (Ada) deep dive DOI: `10.5281/zenodo.22037483` (three sessions; the 2026-08-19 one pairs
-  energy with the perplexity this container now reports, the 2026-08-20 one repeats INT8 three
-  times per size: CV of the energy delta 0.6–3.9%)
-- Code: https://github.com/hongping-zh/ecocompute-ai
+- **Tool**: https://quantenergy.tech
+- **Paper** (SSRN #6854700): *Weight-Only Quantization Does Not Always Save Energy…* (under review)
+- **Main dataset DOI**: `10.5281/zenodo.19647290` (source of no-GPU reference values)
+- **RTX 4090 (Ada) deep dive DOI**: `10.5281/zenodo.22037483` (three sessions; the 2026-08-19 one pairs energy with perplexity)
+- **RTX 5090 (Blackwell) deep dive DOI**: `10.5281/zenodo.22855133` (four precisions, cross-restart repeatability)
+- **Code**: https://github.com/hongping-zh/ecocompute-ai
+
+---
 
 ## Acknowledgments
 
-- **@gkgoing** — first independent replication (2026-08): TinyLlama-1.1B in NF4 on an RTX 3050 Ti Laptop. The perplexity matched our RTX 4090 measurement to four decimals; the energy number did not — and that contrast is the reason this project exists. [Submission →](https://github.com/hongping-zh/ecocompute-mlcube/issues/15)
-- **@amarjithkumar2007-wq** — AMD GPU (ROCm) detection and fallback (PR #20, 2026-10); context_length applied in measurement path (PR #22, 2026-10).
-- **@yesheng-oss** — backend contribution guide (PR #21, 2026-10): documents how to add llama.cpp, vLLM, or TensorRT-LLM as inference engines.
+- **@gkgoing** — first independent replication (2026-08): TinyLlama-1.1B NF4 on RTX 3050 Ti Laptop. [Submission →](https://github.com/hongping-zh/ecocompute-mlcube/issues/15)
+- **@amarjithkumar2007-wq** — AMD GPU (ROCm) detection and fallback (PR #20); context_length applied in measurement path (PR #22).
+- **@yesheng-oss** — backend contribution guide (PR #21): documents how to add llama.cpp, vLLM, or TensorRT-LLM.
+
+---
 
 ## License
 
 [Apache License 2.0](LICENSE) © 2026 Hongping Zhang. See [`NOTICE`](NOTICE).
 
+---
+
 ## Trademarks
 
-MLCOMMONS, MLPERF, and MLCUBE are trademarks of **MLCommons Association**. This
-project references them **nominatively** only, to describe the energy-reporting
-methodology and the container format; it does **not** indicate any MLCommons
-endorsement, certification, or a certified benchmark result. Formal trademark-license
-mark usage (per the [MLCommons Trademark Usage Guidelines](https://mlcommons.org/en/policies/))
-will be added once the license is in effect.
+MLCOMMONS, MLPERF, and MLCUBE are trademarks of **MLCommons Association**. This project references them **nominatively** only, to describe the energy-reporting methodology and the container format; it does **not** indicate any MLCommons endorsement, certification, or a certified benchmark result.
+
