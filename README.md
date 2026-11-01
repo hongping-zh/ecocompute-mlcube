@@ -10,7 +10,10 @@
 > (`measured` / `interpolated` / `estimated`), a confidence rating and the boundary conditions.
 > It says "no data" rather than guessing.
 > → **[Ask Watt in WorkBuddy](https://quantenergy.tech/watt/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=watt-launch&amp;utm_content=ecocompute-mlcube)**
-
+[![CI](https://github.com/hongping-zh/ecocompute-mlcube/actions/workflows/ci.yml/badge.svg)](https://github.com/hongping-zh/ecocompute-mlcube/actions/workflows/ci.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19647290.svg)](https://doi.org/10.5281/zenodo.19647290)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Dataset-yellow)](https://huggingface.co/datasets/hongpingzhang/ecocompute-energy-efficiency)
 A **supplemental energy-methodology container** for LLM inference. It measures the
 *energy* of one configuration — `(GPU × model × precision × batch)` — with direct
 on-device **NVML** power sampling, and writes an `energy.json` report whose fields
