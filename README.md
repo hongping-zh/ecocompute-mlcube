@@ -96,6 +96,7 @@ Ask **Watt** — a WorkBuddy expert built on the same measured dataset this cont
 | **[QUICKSTART.md](QUICKSTART.md)** | Complete setup guide, Docker vs native, AutoDL/vast.ai, common overrides, running from source |
 | **[TECHNICAL.md](TECHNICAL.md)** | JSON schema, validation, protocol conformance, backend contribution guide, reproducible builds |
 | **[docs/backends.md](docs/backends.md)** | How to add llama.cpp, vLLM, or TensorRT-LLM as inference engines |
+| **[GPU 能耗测量入门 (Tutorials, 中文) →](https://cloud.tencent.com/developer/column/109571)** | Hands-on article series: from reading watts to a reproducible measurement protocol — continuously updated |
 
 ---
 
