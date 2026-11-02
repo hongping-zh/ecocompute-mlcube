@@ -119,6 +119,17 @@ Ask **Watt** — a WorkBuddy expert built on the same measured dataset this cont
 
 ---
 
+## Part of the EcoCompute ecosystem
+
+- **[ecocompute-mlcube](https://github.com/hongping-zh/ecocompute-mlcube)** — Measure energy on YOUR GPU *(this repo)*
+- **[quant-energy](https://github.com/hongping-zh/quant-energy)** — Interactive curves + API (deploys [quantenergy.tech](https://quantenergy.tech))
+- **[ecocompute-ai](https://github.com/hongping-zh/ecocompute-ai)** — RTX 5090 benchmark suite
+- **[ecocompute-action](https://github.com/hongping-zh/hongping-zh-ecocompute-action)** — CI audit for LLM energy waste
+
+→ **[quantenergy.tech](https://quantenergy.tech)** for the full dataset
+
+---
+
 ## License
 
 [Apache License 2.0](LICENSE) © 2026 Hongping Zhang. See [`NOTICE`](NOTICE).
