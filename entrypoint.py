@@ -30,6 +30,7 @@ import json
 import os
 import platform
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -356,6 +357,146 @@ class PowerSampler(threading.Thread):
 
     def avg_watts(self):
         return sum(w for _, w in self.samples) / len(self.samples) if self.samples else 0.0
+
+
+# --- ROCm telemetry (issue #27) ---------------------------------------------
+# AMD counterpart of the NVML PowerSampler above, reading power and
+# temperature through the rocm-smi CLI. This is a mock-tested first cut: it
+# is deliberately NOT wired into the measurement flow yet (probe_amd_gpu_name
+# keeps its honest-fallback behaviour) until a real AMD host validates it.
+# The subprocess invocation sits behind _rocm_smi_json so tests can fake it,
+# and so an amd-smi backend (AMD's official successor to rocm-smi) can slot
+# in later without touching the parsing or integration math.
+
+
+class RocmSmiError(RuntimeError):
+    """rocm-smi output could not be parsed or a required field was missing."""
+
+
+def _rocm_smi_json(*args, timeout=5.0):
+    """Run rocm-smi with --json and return the parsed payload (the seam)."""
+    out = subprocess.run(
+        ["rocm-smi", *args, "--json"],
+        capture_output=True, text=True, check=True, timeout=timeout,
+    )
+    return json.loads(out.stdout)
+
+
+# Field names shift between ROCm generations; match leniently, in preference
+# order (all lowercase, matched as substrings of the lowercased field name).
+_ROCM_POWER_KEYS = (
+    "average graphics package power",          # ROCm 5.x
+    "current socket graphics package power",   # ROCm 6.x
+)
+_ROCM_TEMP_KEYS = (
+    "temperature (sensor edge)",       # edge first, like NVML_TEMPERATURE_GPU
+    "temperature (sensor junction)",
+    "temperature (sensor memory)",
+)
+
+
+def _rocm_card_fields(payload, card):
+    fields = payload.get(card)
+    if not isinstance(fields, dict):
+        raise RocmSmiError(f"rocm-smi output has no {card!r} section")
+    return {str(k).lower(): v for k, v in fields.items()}
+
+
+def _rocm_field(fields, wanted_keys, what):
+    for wanted in wanted_keys:
+        for name, value in fields.items():
+            if wanted in name:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    raise RocmSmiError(
+                        f"rocm-smi {what} field {name!r} is not numeric: {value!r}"
+                    ) from None
+    raise RocmSmiError(f"no {what} field in rocm-smi output")
+
+
+def parse_rocm_smi_power_watts(payload, card="card0"):
+    """Package power in watts from a `rocm-smi --showpower --json` payload.
+
+    rocm-smi reports watts directly, unlike NVML's milliwatts: the value is
+    returned unconverted so downstream math stays in the same unit as the
+    NVML path after its own /1000 conversion.
+    """
+    return _rocm_field(_rocm_card_fields(payload, card), _ROCM_POWER_KEYS, "power")
+
+
+def parse_rocm_smi_temperature_c(payload, card="card0"):
+    """GPU temperature in C from a `rocm-smi --showtemp --json` payload."""
+    return _rocm_field(_rocm_card_fields(payload, card), _ROCM_TEMP_KEYS, "temperature")
+
+
+class ROCmPowerSampler(threading.Thread):
+    """Samples AMD GPU power via the rocm-smi CLI; same contract as PowerSampler.
+
+    Two deliberate differences from the NVML sampler:
+    - default rate is 2 Hz, not 10 Hz: each sample is a subprocess spawn, not
+      an in-process NVML call, so 10 Hz would spend most of the wall clock in
+      process startup on slower hosts.
+    - rocm-smi reports watts (NVML reports milliwatts), so no unit conversion
+      happens here; samples are (t_seconds, watts) exactly as in PowerSampler.
+    """
+
+    def __init__(self, card="card0", hz=2):
+        super().__init__(daemon=True)
+        self.card = card
+        self.period = 1.0 / hz
+        self.t0 = time.time()        # trace clock origin, set at construction
+        self.samples = []          # (t_seconds, watts)
+        self.dropped = 0           # count of failed reads
+        self.error = None          # set if power telemetry is unusable
+        # NB: named _stop_evt, not _stop, to avoid shadowing Thread._stop().
+        self._stop_evt = threading.Event()
+
+    def elapsed(self):
+        """Seconds on this sampler's trace clock (for phase markers)."""
+        return round(time.time() - self.t0, 3)
+
+    def run(self):
+        consecutive = 0
+        while not self._stop_evt.is_set():
+            try:
+                watts = parse_rocm_smi_power_watts(
+                    _rocm_smi_json("--showpower"), self.card)
+                self.samples.append((time.time() - self.t0, watts))
+                consecutive = 0
+            except Exception as e:  # missing binary, bad JSON, unknown field
+                self.dropped += 1
+                consecutive += 1
+                # Bail out early if telemetry simply cannot be read at all.
+                if consecutive >= 5 and not self.samples:
+                    self.error = f"ROCm power telemetry unavailable: {e}"
+                    break
+            time.sleep(self.period)
+
+    def stop(self):
+        self._stop_evt.set()
+        self.join(timeout=2.0)
+
+    def energy_joules(self):
+        j = 0.0
+        for (t1, w1), (t2, w2) in zip(self.samples, self.samples[1:]):
+            j += (w1 + w2) / 2.0 * (t2 - t1)
+        return j
+
+    def avg_watts(self):
+        return sum(w for _, w in self.samples) / len(self.samples) if self.samples else 0.0
+
+
+def read_rocm_temperature(card="card0"):
+    """AMD GPU temperature in C via rocm-smi, or None if unavailable.
+
+    Mirrors _read_gpu_temperature()'s contract so it can slot into the
+    thermal block at the same level once the AMD path is wired in.
+    """
+    try:
+        return parse_rocm_smi_temperature_c(_rocm_smi_json("--showtemp"), card)
+    except Exception:
+        return None
 
 
 def _quant_config(precision):
