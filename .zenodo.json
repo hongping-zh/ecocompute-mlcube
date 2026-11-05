@@ -1,0 +1,48 @@
+{
+  "title": "EcoCompute MLCube: a reproducible energy-measurement container for quantized LLM inference",
+  "description": "<p>EcoCompute MLCube is a reproducible, containerized measurement harness for the energy cost of quantized large language model (LLM) inference. Given a model and a GPU, it measures decode-phase energy per token from direct power telemetry — NVIDIA NVML on GeForce/RTX cards — and emits a schema-validated energy report (energy per token, average power, trapezoid-integrated energy, thermal block, full stack versions). Run it in three commands on your own hardware and see where your measurement falls on the quantization energy crossover curve.</p><p>The container is the reference implementation of the EcoCompute Protocol (see Related identifiers) and the measurement tool behind the EcoCompute benchmark datasets. It is deliberately honest about coverage: AMD GPUs are detected by name and reported as <em>unavailable</em> for energy rather than fitted with NVIDIA-derived curves. Release schema-1.3-r5 adds a mock-tested ROCm power/temperature telemetry sampler (rocm-smi --showpower/--showtemp, lenient 5.x/6.x JSON parsing, explicit unit tests), not yet wired into the measurement flow pending real-hardware validation.</p><p>Contributions: @amarjithkumar2007-wq (AMD GPU detection #20, context_length in the measurement path #22, ROCm telemetry sampler #31); first independent replication by @gkgoing (#15, TinyLlama-1.1B NF4 on RTX 3050 Ti Laptop). Licensed Apache-2.0.</p>",
+  "license": "apache-2.0",
+  "upload_type": "software",
+  "access_right": "open",
+  "language": "eng",
+  "creators": [
+    {
+      "name": "Zhang, Hongping",
+      "affiliation": "Independent Researcher, Changsha, Hunan, China",
+      "orcid": "0009-0000-2529-4613"
+    }
+  ],
+  "keywords": [
+    "LLM inference",
+    "energy efficiency",
+    "quantization",
+    "NVML",
+    "ROCm",
+    "MLCube",
+    "reproducibility",
+    "benchmark",
+    "green AI"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "10.5281/zenodo.19647290",
+      "relation": "isSupplementTo"
+    },
+    {
+      "identifier": "10.5281/zenodo.22037483",
+      "relation": "isSupplementTo"
+    },
+    {
+      "identifier": "10.5281/zenodo.22855133",
+      "relation": "isSupplementTo"
+    },
+    {
+      "identifier": "10.5281/zenodo.22958675",
+      "relation": "isDescribedBy"
+    },
+    {
+      "identifier": "https://github.com/hongping-zh/ecocompute-ai",
+      "relation": "references"
+    }
+  ]
+}
