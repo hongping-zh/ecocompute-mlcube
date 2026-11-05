@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use EcoCompute MLCube in your work, please cite it as below, and cite the EcoCompute dataset you compare against (see the Provenance section of the README)."
+title: "EcoCompute MLCube: a reproducible energy-measurement container for quantized LLM inference"
+authors:
+  - family-names: Zhang
+    given-names: Hongping
+    orcid: https://orcid.org/0009-0000-2529-4613
+    affiliation: Independent Researcher, Changsha, Hunan, China
+type: software
+repository-code: "https://github.com/hongping-zh/ecocompute-mlcube"
+abstract: >-
+  Containerized measurement harness for the energy cost of quantized
+  LLM inference. Measures decode-phase energy per token from direct
+  power telemetry (NVIDIA NVML; mock-tested ROCm sampler pending
+  real-hardware validation) and emits a schema-validated energy report.
+  Reference implementation of the EcoCompute Protocol and the
+  measurement tool behind the EcoCompute benchmark datasets. AMD GPUs
+  are detected and reported as unavailable for energy rather than
+  fitted with NVIDIA-derived curves.
+keywords:
+  - LLM inference
+  - energy efficiency
+  - quantization
+  - NVML
+  - ROCm
+  - MLCube
+  - reproducibility
+  - benchmark
+license: Apache-2.0
