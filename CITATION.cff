@@ -6,6 +6,9 @@ authors:
     given-names: Hongping
     orcid: https://orcid.org/0009-0000-2529-4613
     affiliation: Independent Researcher, Changsha, Hunan, China
+  - family-names: Sah
+    given-names: Amarjith
+    affiliation: AVN Institute of Engineering and Technology, Hyderabad, India
 type: software
 repository-code: "https://github.com/hongping-zh/ecocompute-mlcube"
 abstract: >-
