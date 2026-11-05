@@ -32,8 +32,8 @@ A **supplemental energy-methodology container** for LLM inference. It measures t
 
 ```bash
 # 1. Download the script from an immutable release
-curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r4/quickstart.sh
-curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r4/SHA256SUMS
+curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r5/quickstart.sh
+curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r5/SHA256SUMS
 
 # 2. Verify checksum
 sha256sum -c SHA256SUMS

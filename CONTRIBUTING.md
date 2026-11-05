@@ -15,7 +15,7 @@ The most valuable contribution: run the container on your GPU and submit your
 
 **Steps:**
 
-1. Run the container — see the [Quick start](README.md#quick-start--three-commands-no-configuration)
+1. Run the container — see the [Quick start](README.md#quick-start--3-commands)
    in the README. The default run measures NF4 + FP16 baseline on TinyLlama-1.1B.
 2. Validate your report:
    ```bash

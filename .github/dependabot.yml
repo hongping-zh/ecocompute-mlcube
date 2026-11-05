@@ -1,0 +1,17 @@
+# Weekly dependency updates (opened as PRs for review, never auto-merged).
+# Note: requirements.lock.txt is the reproducibility pin for measurements —
+# decline or defer its bump PRs if a release used them as reference.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

@@ -16,7 +16,7 @@
 # Run with --dry-run to see what would happen without executing anything.
 set -euo pipefail
 
-RELEASE="schema-1.3-r4"
+RELEASE="schema-1.3-r5"
 BASE_URL="https://github.com/hongping-zh/ecocompute-mlcube/releases/download/${RELEASE}"
 
 # ----------------------------------------------------------------- defaults --
