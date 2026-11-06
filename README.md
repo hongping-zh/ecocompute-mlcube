@@ -3,6 +3,7 @@
 [![CI](https://github.com/hongping-zh/ecocompute-mlcube/actions/workflows/ci.yml/badge.svg)](https://github.com/hongping-zh/ecocompute-mlcube/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/hongping-zh/ecocompute-mlcube)](https://github.com/hongping-zh/ecocompute-mlcube/releases/latest)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19647290.svg)](https://doi.org/10.5281/zenodo.19647290)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23974825.svg)](https://doi.org/10.5281/zenodo.23974825)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Dataset-yellow)](https://huggingface.co/datasets/hongpingzhang/ecocompute-energy-efficiency)
 
@@ -104,6 +105,7 @@ Ask **Watt** — a WorkBuddy expert built on the same measured dataset this cont
 
 - **Tool**: https://quantenergy.tech
 - **Paper** (SSRN #6854700): *Weight-Only Quantization Does Not Always Save Energy…* (under review)
+- **Container (this repo) software DOI**: `10.5281/zenodo.23974826` (release `schema-1.3-r5`; concept DOI `10.5281/zenodo.23974825` always resolves to the latest version)
 - **Main dataset DOI**: `10.5281/zenodo.19647290` (source of no-GPU reference values)
 - **RTX 4090 (Ada) deep dive DOI**: `10.5281/zenodo.22037483` (three sessions; the 2026-08-19 one pairs energy with perplexity)
 - **RTX 5090 (Blackwell) deep dive DOI**: `10.5281/zenodo.22855133` (four precisions, cross-restart repeatability)
@@ -114,7 +116,7 @@ Ask **Watt** — a WorkBuddy expert built on the same measured dataset this cont
 ## Acknowledgments
 
 - **@gkgoing** — first independent replication (2026-08): TinyLlama-1.1B NF4 on RTX 3050 Ti Laptop. [Submission →](https://github.com/hongping-zh/ecocompute-mlcube/issues/15)
-- **@amarjithkumar2007-wq** — AMD GPU (ROCm) detection and fallback (PR #20); context_length applied in measurement path (PR #22).
+- **@amarjithkumar2007-wq** — AMD GPU (ROCm) detection and fallback (PR #20); context_length applied in measurement path (PR #22); mock-tested ROCm power/temperature telemetry sampler (PR #31) — now co-author on the container's software record.
 - **@yesheng-oss** — backend contribution guide (PR #21): documents how to add llama.cpp, vLLM, or TensorRT-LLM.
 
 ---
