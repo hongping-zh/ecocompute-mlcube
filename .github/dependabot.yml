@@ -1,12 +1,10 @@
 # Weekly dependency updates (opened as PRs for review, never auto-merged).
-# Note: requirements.lock.txt is the reproducibility pin for measurements —
-# decline or defer its bump PRs if a release used them as reference.
+# NOTE: pip is deliberately NOT configured here. requirements.lock.txt is the
+# fully-pinned reproducibility asset for measurements (see its header) — it
+# does not accept automated bumps. Dependency refreshes happen manually at
+# release boundaries, after container re-validation.
 version: 2
 updates:
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
