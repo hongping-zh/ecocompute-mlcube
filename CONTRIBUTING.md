@@ -144,6 +144,10 @@ incident of 2026-10-28 was caught only after publication):
 - recompute `SHA256SUMS` / `SHA256SUMS.all` from the published assets, and
   cross-check every line against the tag (a wrong hash that nobody verifies
   survives indefinitely — the schema line in `SHA256SUMS.all` did).
+- regenerate the SBOM against the published image and attach it to the
+  release assets (e.g. `syft <image> -o cyclonedx-json > sbom.cdx.json`)
+  — r3 shipped one, r4/r5 shipped without, which the README then overstated.
+  A release without an SBOM is not complete.
 
 ## Decision process
 
