@@ -46,7 +46,7 @@ bash quickstart.sh
 **What you get:**
 - `ecocompute-out/energy.json` — your measurement (NVML energy, throughput, perplexity)
 - A link to overlay your point on the published crossover curve at [quantenergy.tech](https://quantenergy.tech/?tab=run)
-- Supply-chain guarantees: checksummed script, non-root container, SBOM included
+- Supply-chain guarantees: checksummed script, non-root container; SBOM release asset (r3; standard again from r6)
 
 **Time:** ~57 minutes first run (downloads), ~2 minutes repeat runs (all cached).
 
