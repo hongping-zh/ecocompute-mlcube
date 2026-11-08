@@ -794,12 +794,18 @@ def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_
                 "mode": thermal_mode,
                 "basis": "measured" if temp_start is not None else "unavailable",
                 "warmup_runs": warmup,
-                "cooldown_s": None,
+                # The container enforces no inter-arm cooldown wait; 0 records
+                # that fact (4.6.1 requires the value to be recorded, not a
+                # nonzero wait to have happened).
+                "cooldown_s": 0,
                 "temperature_start_c": temp_start,
-                "temperature_steady_c": None,  # only for steady mode (not yet implemented)
+                "temperature_steady_c": None,  # steady detection not implemented; excused by the honest false below (4.6.4)
                 "temperature_end_c": temp_end,
                 "temperature_peak_c": temp_peak,
-                "steady_state_reached": None,  # only for steady mode
+                # The container never verifies steady state, so it never claims
+                # it: false is the honest value and a valid one (only
+                # fabrication fails validation).
+                "steady_state_reached": False,
             },
         }
     finally:
@@ -834,6 +840,23 @@ POWER_TRACE_NOTE = (
     "re-cut post hoc — unlike every bitsandbytes report published before schema 1.3, "
     "which kept only aggregates and could not be re-windowed. The reported "
     "total_energy_joules is unchanged by this option."
+)
+
+# Protocol v1.1 4.6.2 asks for a randomized or counterbalanced arm order; the
+# session in main() runs a fixed one (target precision, then the FP16
+# baseline). A fixed order is a permitted DEVIATION as long as it is disclosed,
+# so the value travels with the note below (issue #29).
+ARM_ORDER_FIXED = "fixed: target precision first, then the FP16 baseline"
+
+THERMAL_MEASURED_NOTE = (
+    "Arm order is fixed, a disclosed deviation from 4.6.2 randomization: the "
+    "target precision is measured first, then the FP16 baseline, in one "
+    "session. The container performs no inter-arm cooldown wait (cooldown_s: 0 "
+    "records that fact; thermal-state management is the operator's "
+    "responsibility, protocol 4.6) and does not verify steady state "
+    "(steady_state_reached: false is the honest value, not a claim the "
+    "container is entitled to make; an operator who verified a steady "
+    "plateau externally may annotate the report)."
 )
 
 
@@ -928,6 +951,10 @@ def _build_thermal_block(p, measured, amd_gpu):
             "temperature_end_c": t.get("temperature_end_c"),
             "temperature_peak_c": t.get("temperature_peak_c"),
             "steady_state_reached": t.get("steady_state_reached"),
+            # Session-level fact (main() runs the arms in this order), not a
+            # per-arm one, so it is recorded here rather than in measure_once.
+            "arm_order": ARM_ORDER_FIXED,
+            "note": THERMAL_MEASURED_NOTE,
         }
 
     # No measurement (AMD, dry run, or failure): thermal unavailable
@@ -976,6 +1003,10 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None,
             "params_b": p.get("params_b"),
             "precision": p["precision"],
             "batch_size": int(p["batch_size"]),
+            # The generation loop always decodes greedily (do_sample=False in
+            # measure_once); sampling decoding is a protocol 4.8 MAY that would
+            # need its own label. Recorded so the fact travels with the claim.
+            "decoding": "greedy",
             # When a measurement ran, record what was actually measured: the
             # value may have been clamped to the model's maximum.
             "context_length": int((measured or {}).get("context_length")
@@ -985,6 +1016,13 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None,
             "method": ("NVML on-device power sampling" if measured
                        else "reference estimate from published dataset (no on-device measurement)"),
             "sample_rate_hz": int(p.get("sample_rate_hz", 10)),
+            # 4.4: the window definition MUST travel with every energy claim.
+            "window": "generation",
+            "window_note": (
+                "reported energy integrates the power sampler over the "
+                "generation loop only - model load, quantization and warm-up "
+                "excluded (protocol v1.1 4.4); idle power is not subtracted"
+            ),
             "tokens_per_run": int(p.get("tokens", 256)),
             "iterations": int(p.get("iterations", 10)),
             "warmup": int(p.get("warmup", 2)),

@@ -19,7 +19,7 @@ The most valuable contribution: run the container on your GPU and submit your
    in the README. The default run measures NF4 + FP16 baseline on TinyLlama-1.1B.
 2. Validate your report:
    ```bash
-   python3 tools/validate.py ecocompute-out/energy.json
+   python3 tools/validate.py ecocompute-out/energy.json --profile v1.1-core
    ```
    Aim for `protocol-conformant` or `dataset-eligible`. `schema-valid` alone means
    the structure is correct but some protocol MUSTs are not met.
@@ -177,7 +177,8 @@ the following thresholds:
 
 - **≥ 2 merged code PRs** — sustained code contributions to the measurement
   container, schema, validator, or documentation; or
-- **≥ 1 qualified data submission** — a protocol-conformant `energy.json`
+- **≥ 1 qualified data submission** — an `energy.json` that validates
+  `protocol-conformant` (`tools/validate.py --profile v1.1-core`) and is
   accepted into the published dataset (see
   [quantenergy.tech/replications](https://quantenergy.tech/replications/#submit)).
 

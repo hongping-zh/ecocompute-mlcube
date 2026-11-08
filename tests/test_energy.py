@@ -895,12 +895,12 @@ def test_build_thermal_block_with_measured_data():
         "mode": "cold",
         "basis": "measured",
         "warmup_runs": 2,
-        "cooldown_s": None,
+        "cooldown_s": 0,
         "temperature_start_c": 32,
         "temperature_steady_c": None,
         "temperature_end_c": 45,
         "temperature_peak_c": 48,
-        "steady_state_reached": None,
+        "steady_state_reached": False,
     }
     report = ecc.build_report(params, measured=measured, ref=None)
     jsonschema.validate(report, SCHEMA)
@@ -909,6 +909,12 @@ def test_build_thermal_block_with_measured_data():
     assert thermal["temperature_start_c"] == 32
     assert thermal["temperature_end_c"] == 45
     assert thermal["temperature_peak_c"] == 48
+    # #29: the session-level facts travel with the measured block - a fixed
+    # arm order (a 4.6.2 deviation) plus the disclosure note that makes it
+    # valid, so the validator's arm-order clause has something to check.
+    assert thermal["arm_order"].startswith("fixed")
+    assert "FP16 baseline" in thermal["arm_order"]
+    assert thermal["note"].strip()
 
 
 def test_build_thermal_block_unavailable_without_measurement():
@@ -921,6 +927,77 @@ def test_build_thermal_block_unavailable_without_measurement():
     assert thermal["basis"] == "unavailable"
     assert thermal["temperature_start_c"] is None
     assert thermal["temperature_end_c"] is None
+
+
+# --- #29: protocol-conformant must be reachable from the container ------------
+
+def test_measured_report_reaches_protocol_conformant(monkeypatch):
+    """The contribute path points at the protocol-conformant verdict, so a
+    report the CLI emits on a real GPU host must actually reach it under
+    --profile v1.1-core. The environment-dependent parts (package versions,
+    driver string) are simulated the way the GPU runtime image would report
+    them; everything else runs the real build_report path."""
+    sys.path.insert(0, str(REPO / "tools"))
+    import validate  # noqa: E402  (tools/validate.py, same import as test_validate)
+
+    pins = ecc.reference_pins()
+    fake_versions = dict(pins)  # a host running the published pins
+    monkeypatch.setattr(ecc, "_pkg_version", lambda name: fake_versions.get(name))
+    fake_nvml = types.ModuleType("pynvml")
+    fake_nvml.nvmlInit = lambda: None
+    fake_nvml.nvmlSystemGetDriverVersion = lambda: b"550.54.14"
+    fake_nvml.nvmlShutdown = lambda: None
+    monkeypatch.setitem(sys.modules, "pynvml", fake_nvml)
+
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    measured = _measured()
+    measured["thermal"] = {
+        # exactly what measure_once emits on the measured path (#29)
+        "mode": "cold",
+        "basis": "measured",
+        "warmup_runs": 2,
+        "cooldown_s": 0,
+        "temperature_start_c": 32,
+        "temperature_steady_c": None,
+        "temperature_end_c": 45,
+        "temperature_peak_c": 48,
+        "steady_state_reached": False,
+    }
+    report = ecc.build_report(params, measured=measured, ref=None,
+                              fp16_measured=_measured(energy_per_token_mj=30.0))
+    jsonschema.validate(report, SCHEMA)
+    # the three #29 records are present on the CLI-generated report
+    assert report["workload"]["decoding"] == "greedy"
+    assert report["measurement"]["window"] == "generation"
+    assert report["thermal"]["arm_order"].startswith("fixed")
+    # ... and the full report clears every v1.1-core MUST
+    verdict, viol, _ = validate.validate_report(report, SCHEMA, "v1.1-core")
+    assert verdict == "protocol-conformant", viol
+
+
+def test_illustrative_example_is_conformant_except_for_its_source():
+    """The illustrative example must show schema-valid plus exactly ONE
+    violation: the honest 4.1.4 one (a synthetic example must not claim
+    direct-nvml). Every other protocol fact is now recorded in it."""
+    sys.path.insert(0, str(REPO / "tools"))
+    import validate  # noqa: E402
+
+    report = json.loads(
+        (REPO / "examples" / "energy.measured.illustrative.json").read_text())
+    verdict, viol, _ = validate.validate_report(report, SCHEMA, "v1.1-core")
+    assert verdict == "schema-valid", (verdict, viol)
+    assert len(viol) == 1, viol
+    assert "direct-nvml" in viol[0], viol
+
+
+def test_dry_run_records_the_workload_facts_but_not_an_arm_order(tmp_path):
+    """The no-GPU path records the workload facts that are true of the
+    protocol it estimates (greedy decoding, generation window) but does NOT
+    record an arm order: no arms ran, and the validator flags exactly that."""
+    report = run_cli(tmp_path, "--gpu_arch", "blackwell", "--params_b", "3")
+    assert report["workload"]["decoding"] == "greedy"
+    assert report["measurement"]["window"] == "generation"
+    assert "arm_order" not in report["thermal"]
 
 
 def test_build_thermal_block_amd_fallback():

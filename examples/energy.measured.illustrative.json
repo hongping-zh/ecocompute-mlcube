@@ -17,11 +17,14 @@
     "params_b": 3.0,
     "precision": "NF4",
     "batch_size": 1,
+    "decoding": "greedy",
     "context_length": 2048
   },
   "measurement": {
     "method": "NVML on-device power sampling",
     "sample_rate_hz": 10,
+    "window": "generation",
+    "window_note": "reported energy integrates the power sampler over the generation loop only - model load, quantization and warm-up excluded (protocol v1.1 4.4); idle power is not subtracted",
     "tokens_per_run": 256,
     "iterations": 10,
     "warmup": 2,
@@ -58,7 +61,8 @@
     "temperature_end_c": 45,
     "temperature_peak_c": 48,
     "steady_state_reached": false,
-    "note": "steady state not reached within the warm-up budget; peak recorded instead"
+    "arm_order": "fixed: target precision first, then the FP16 baseline",
+    "note": "Arm order is fixed, a disclosed deviation from 4.6.2 randomization: the target precision was measured first, then the FP16 baseline, in one session. The 120 s cooldown was managed by the operator outside the container (the container itself enforces no inter-arm wait; its own reports record cooldown_s: 0). Steady state was not reached within the warm-up budget; peak recorded instead."
   },
   "power_trace": {
     "format": "csv",
