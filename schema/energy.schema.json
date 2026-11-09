@@ -42,7 +42,8 @@
         "sample_rate_hz": {"type": "integer", "minimum": 10, "description": "ACHIEVED (not requested) NVML sample rate; Protocol v1.1 §4.1.2 requires >= 10 Hz"},
         "window": {"type": "string", "enum": ["generation", "whole-process"], "description": "which slice of the run the reported energy integrates. Protocol v1.1 core (4.4) is the generation window: model load, quantization and warm-up excluded."},
         "window_note": {"type": "string", "description": "human-readable statement of the window boundary; 4.4.2: the window definition MUST travel with every energy claim"},
-        "tokens_per_run": {"type": "integer"},
+        "tokens_per_run": {"type": "integer", "description": "NEW tokens per SEQUENCE per decode iteration; with batch_size > 1 the run generates tokens_per_run x batch_size tokens per iteration (see tokens_per_run_note and tokens_generated)"},
+        "tokens_per_run_note": {"type": "string", "description": "emitted when batch_size > 1: clarifies per-sequence token semantics and that energy_per_token_mj is amortized over the batch total"},
         "iterations": {"type": "integer", "description": "decode iterations within this run; NOT a count of independent trials"},
         "warmup": {"type": "integer"},
         "iterations_note": {"type": "string"}

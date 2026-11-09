@@ -52,6 +52,18 @@ bash quickstart.sh
 
 👉 **[Full quickstart guide →](QUICKSTART.md)**
 
+### Batch > 1 (Offline scenario)
+
+The default run is batch 1 (SingleStream). For Offline runs, pass `--batch_size 32` or swap in the ready-made parameter set:
+
+```bash
+bash quickstart.sh -- --parameters_file parameters/bert_bs32.yaml
+```
+
+Two things change in `energy.json`: `scenario` becomes `Offline`, and the report gains a `tokens_per_run_note` — `tokens_per_run` counts **per sequence**, so each decode iteration generates `tokens_per_run × batch_size` tokens in total (`tokens_generated` records that total; `energy_per_token_mj` is amortized over it).
+
+**Protocol status (deliberate):** batch sizes other than 1 are a protocol §4.8 MAY, labelled separately. `tools/validate.py --profile v1.1-core` will flag `batch_size != 1` (§3.1) — an Offline report can be schema-valid and honest, but it does not qualify for the v1.1-core profile. That is by design, not a gap: the core profile is the comparability floor, Offline runs are supplemental.
+
 ---
 
 ## Why this matters

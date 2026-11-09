@@ -1047,6 +1047,16 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None,
             "Association, referenced here nominatively."
         ),
     }
+    # Offline semantics: with batch > 1, tokens_per_run is PER SEQUENCE —
+    # each decode iteration generates tokens_per_run * batch_size new tokens
+    # (tokens_generated records the total). The note keeps energy_per_token_mj
+    # from being misread as per-sequence cost.
+    if int(p["batch_size"]) > 1:
+        report["measurement"]["tokens_per_run_note"] = (
+            "tokens_per_run is per sequence; each decode iteration generates "
+            "tokens_per_run x batch_size new tokens in total (see tokens_generated); "
+            "energy_per_token_mj is amortized over the total"
+        )
     if measured:
         report["measurement_source"] = "direct-nvml"
         report["results"] = {

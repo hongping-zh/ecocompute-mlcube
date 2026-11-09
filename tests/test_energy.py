@@ -72,6 +72,13 @@ def test_batch_size_selects_scenario(tmp_path, batch, scenario):
     report = run_cli(tmp_path, "--batch_size", str(batch),
                      "--gpu_arch", "blackwell", "--params_b", "3")
     assert report["scenario"] == scenario
+    # Offline semantics: the per-sequence token note travels with batch > 1,
+    # and a SingleStream report must not carry it (nothing to clarify).
+    if batch > 1:
+        assert "per sequence" in report["measurement"]["tokens_per_run_note"]
+        assert "batch_size" in report["measurement"]["tokens_per_run_note"]
+    else:
+        assert "tokens_per_run_note" not in report["measurement"]
 
 
 def test_no_gpu_path_never_claims_a_fresh_measurement(tmp_path):
