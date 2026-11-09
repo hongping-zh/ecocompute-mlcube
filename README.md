@@ -134,6 +134,8 @@ Ask **Watt** — a WorkBuddy expert built on the same measured dataset this cont
 - **@amarjithkumar2007-wq** — AMD GPU (ROCm) detection and fallback (PR #20); context_length applied in measurement path (PR #22); mock-tested ROCm power/temperature telemetry sampler (PR #31) — now co-author on the container's software record.
 - **@yesheng-oss** — backend contribution guide (PR #21): documents how to add llama.cpp, vLLM, or TensorRT-LLM.
 
+**How contributors become authors**: the thresholds and the difference between authorship and acknowledgment are defined in the [authorship policy](CONTRIBUTING.md#authorship-policy) — two PRs of substance, or one protocol-conformant data submission accepted into the dataset.
+
 ---
 
 ## Part of the EcoCompute ecosystem

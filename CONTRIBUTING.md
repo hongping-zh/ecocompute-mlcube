@@ -149,10 +149,23 @@ incident of 2026-10-28 was caught only after publication):
   — r3 shipped one, r4/r5 shipped without, which the README then overstated.
   A release without an SBOM is not complete.
 
-## Decision process
+## Project roles and decision process
 
-This project has a single maintainer (Hongping Zhang). Decisions are made
-transparently:
+EcoCompute is a small research project with transparent governance:
+
+- **Hongping Zhang** — maintainer (admin). Owns the measurement protocol, the
+  schema contract and the release process.
+- **Amarjith Kumar** — the project's most sustained contributor: AMD/ROCm GPU
+  detection and fallback (#20), context_length applied in the measurement
+  path (#22), the ROCm power/temperature telemetry sampler (#31); co-author
+  on the container's Zenodo software record. Being onboarded to the triage
+  role (2026-11); write access is intended to follow the ROCm real-machine
+  validation landing.
+- **Everyone else** — contributions come through fork PRs and data
+  submissions; both paths are described above and both count toward
+  authorship (see the policy below).
+
+Decisions are made transparently:
 
 - **Bug fixes and documentation improvements** are merged quickly.
 - **Schema changes** require a new version and a changelog entry. The schema is
@@ -175,8 +188,14 @@ Contributors are invited to be listed as authors on project publications
 (papers, dataset releases, conference submissions) when they meet either of
 the following thresholds:
 
-- **≥ 2 merged code PRs** — sustained code contributions to the measurement
-  container, schema, validator, or documentation; or
+- **≥ 2 merged code PRs of substance** — sustained contributions to the
+  measurement container, schema, validator, or documentation. Substance
+  means a change to how something is measured, validated, or documented;
+  two typo fixes do not add up to authorship, and the bar is deliberately
+  qualitative rather than a raw PR count. The worked example is Amarjith
+  Kumar: three PRs that each changed what the container can measure
+  (ROCm detection, context_length handling, the ROCm telemetry sampler),
+  plus cross-checking the result against real hardware.
 - **≥ 1 qualified data submission** — an `energy.json` that validates
   `protocol-conformant` (`tools/validate.py --profile v1.1-core`) and is
   accepted into the published dataset (see
