@@ -203,6 +203,19 @@ ECO_PYTHON=/root/miniconda3/envs/eco310/bin/python \
 
 The upgrade leaves the published pins, so the report carries `software.differs_from_reference_pins` and `vs_fp16` is not directly comparable with image runs.
 
+**The downgrade can come back silently.** Any later `pip install -r requirements.lock.txt` (or dependency resolution that touches bitsandbytes) re-pins 0.43.3 — and on a torch ≥ 2.13 / CUDA 13 host that version has no matching binary. The container does **not** error out: it falls back to dataset-derived reference values and still writes a schema-valid `energy.json`. This exact sequence happened on 2026-11-07: two arms of a batch ran on fallback before anyone noticed. Two habits close the trap:
+
+```bash
+# 1. Fingerprint check — old 0.43.x ships only cuda12x binaries:
+ls "$(python -c 'import bitsandbytes,os;print(os.path.dirname(bitsandbytes.__file__))')"/lib/*.so | grep -c cuda13
+# 0 means the 4-bit kernel can't load on a CUDA-13 torch; fix:
+pip install --upgrade "bitsandbytes>=0.45"
+
+# 2. After every run batch, check the source field — schema-valid ≠ measured:
+grep -h measurement_source ecocompute-out*/energy.json
+# direct-nvml = your measurement; ecocompute-dataset = fallback, investigate before using
+```
+
 **Model download location:** Set `HF_HOME` to avoid filling the system disk:
 
 ```bash
@@ -363,6 +376,16 @@ ECOCOMPUTE_MODEL=TinyLlama/TinyLlama-1.1B-Chat-v1.0 bash quickstart.sh
 Some consumer GPUs or vGPU configurations don't expose power reads.
 
 **Fix:** The container automatically falls back to the dataset path with `basis != "measured"`. A single dropped power read never aborts a run (see `results.dropped_samples`).
+
+### Report came back as a reference estimate (you expected a measurement)
+
+Symptom: `measurement_source: "ecocompute-dataset"` and `basis != "measured"` on a host that has a working GPU.
+
+**Cause 1 — bitsandbytes silently downgraded** (the common one on rented CUDA-13 hosts): a later `pip install -r requirements.lock.txt` re-pinned bitsandbytes 0.43.3, which ships no `cuda13x` binary, so the 4-bit kernel cannot load. The container treats that as "quantization unavailable" and falls back — no error, a valid-looking report. Check the fingerprint (`ls .../bitsandbytes/lib/*.so` — only `cuda121`–`cuda125` entries means 0.43.x) and `pip install --upgrade "bitsandbytes>=0.45"`, then re-run. Documented above in the [AutoDL section](#autodl); this exact failure hid two runs of a six-arm batch on 2026-11-07.
+
+**Cause 2 — NVML genuinely unavailable:** see the previous entry.
+
+**The discipline:** "file exists + schema-valid" does not mean "measured". Check `measurement_source` after every batch — this is also what the cold–steady experiment write-up tells practitioners to do.
 
 ### Report says "not directly comparable with image runs"
 
