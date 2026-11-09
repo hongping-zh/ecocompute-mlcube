@@ -1,6 +1,7 @@
 # EcoCompute Energy Methodology — MLCube
 
 [![CI](https://github.com/hongping-zh/ecocompute-mlcube/actions/workflows/ci.yml/badge.svg)](https://github.com/hongping-zh/ecocompute-mlcube/actions/workflows/ci.yml)
+[![Protocol](https://img.shields.io/badge/validator-protocol--conformant%20reachable-brightgreen)](https://github.com/hongping-zh/ecocompute-mlcube/issues/29)
 [![Release](https://img.shields.io/github/v/release/hongping-zh/ecocompute-mlcube)](https://github.com/hongping-zh/ecocompute-mlcube/releases/latest)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19647290.svg)](https://doi.org/10.5281/zenodo.19647290)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23974825.svg)](https://doi.org/10.5281/zenodo.23974825)
@@ -26,6 +27,8 @@ Run in 3 commands. See where YOUR measurement falls on the crossover curve.
 A **supplemental energy-methodology container** for LLM inference. It measures the *energy* of one configuration — `(GPU × model × precision × batch)` — with direct on-device **NVML** power sampling, and writes an `energy.json` report whose fields align with **MLCommons-style inference energy reporting**.
 
 **This is not a certified benchmark.** It's a reproducible measurement tool that packages the same inputs as the EcoCompute [`/v1/estimate`](https://quantenergy.tech) API as a portable [MLCube](https://mlcommons.org/en/mlcube/)-compatible container.
+
+Every report the CLI emits is machine-checked against Protocol v1.1 (`tools/validate.py`, verdict ladder: `schema-valid` → `protocol-conformant` → `dataset-eligible`). Since [#29](https://github.com/hongping-zh/ecocompute-mlcube/issues/29) the container's own measured reports reach `protocol-conformant` — the validator's rules and the tool's output are in lockstep.
 
 ---
 
