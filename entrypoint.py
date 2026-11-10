@@ -95,7 +95,7 @@ ARCH_PATTERNS = [
     (r"\b(l4|l40s?|ada)\b|\brtx\s*(40\d0|(?:2000|4000|5000|6000)\s*ada)\b", "ada"),
     (r"\b(a100|a800|a10g?|a16|a2|a30|a40)\b|\brtx\s*(a\d{4}|30\d0)\b",      "ampere"),
     (r"\b(t4|t400|t600|t1000)\b|\b(quadro|titan)\s*rtx\b|\brtx\s*20\d0\b",  "turing"),
-    (r"\bv100\b|\btitan\s*v\b",                                    "volta"),
+    (r"\bv100s?\b|\btitan\s*v\b",                                  "volta"),
 ]
 
 

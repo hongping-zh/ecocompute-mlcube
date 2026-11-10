@@ -439,6 +439,7 @@ def _ns(**over):
     ("Tesla T4", "turing"),
     ("NVIDIA GeForce RTX 2080 Ti", "turing"),
     ("Tesla V100-SXM2-16GB", "volta"),
+    ("Tesla V100S-PCIE-32GB", "volta"),
     ("NVIDIA GeForce GTX 1080", None),
     ("", None),
     (None, None),
