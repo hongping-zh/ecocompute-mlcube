@@ -20,7 +20,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The CUDA + torch image is ~10 GB; the default runner image leaves too
       # little room, so drop the toolchains this build never uses.
