@@ -119,7 +119,7 @@ Ask **Watt** — a WorkBuddy expert built on the same measured dataset this cont
 ## Provenance
 
 - **Tool**: https://quantenergy.tech
-- **Paper** (SSRN #6854700): *Weight-Only Quantization Does Not Always Save Energy…* (under review)
+- **Paper** (SSRN #6854700): *Weight-Only Quantization Does Not Always Save Energy…* (preprint)
 - **Container (this repo) software DOI**: `10.5281/zenodo.23974826` (release `schema-1.3-r5`; concept DOI `10.5281/zenodo.23974825` always resolves to the latest version)
 - **Main dataset DOI**: `10.5281/zenodo.19647290` (source of no-GPU reference values)
 - **RTX 4090 (Ada) deep dive DOI**: `10.5281/zenodo.22037483` (three sessions; the 2026-08-19 one pairs energy with perplexity)
