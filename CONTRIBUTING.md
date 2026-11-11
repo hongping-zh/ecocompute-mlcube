@@ -11,6 +11,15 @@ contribute, and **you do not need a GPU to get started**.
 The most valuable contribution: run the container on your GPU and submit your
 `energy.json` as a public replication. This is how the dataset grows.
 
+**What "the dataset" is:** the project's published measurement corpus — the
+Zenodo dataset releases plus the live dataset behind
+[quantenergy.tech](https://quantenergy.tech). Community replications are part
+of it, not decoration around it: a submission is *accepted into the dataset*
+once it validates `protocol-conformant` and is archived in the
+[replications gallery](https://quantenergy.tech/replications), and archived
+replications feed the coverage grid on the site. "Accepted into the dataset"
+therefore means exactly one thing: gallery archiving.
+
 **What you need:** an NVIDIA GPU (any architecture) or a free Colab T4.
 
 **Steps:**
@@ -184,6 +193,20 @@ By contributing, you agree that your contributions will be licensed under the
 
 ## Authorship policy
 
+Recognition comes in three tiers, and **which tier you occupy is your choice**:
+
+1. **Acknowledgment** (the default) — your handle is credited in the README
+   acknowledgments, the website replications gallery, and release notes. No
+   consent or invitation is needed: every accepted contribution starts here,
+   and staying here is a complete, final choice — not a waiting state.
+2. **Dataset contributor** — your measurements are part of the published
+   dataset (see [above](#1-run-a-measurement-and-submit-a-replication)) with
+   you named in the dataset's credits, but you are not an author on
+   publications. This tier exists for contributors who want their data in the
+   dataset without authorship. Requires your explicit consent.
+3. **Author** — listed as an author on project publications. Requires meeting
+   one of the thresholds below **and** your explicit consent.
+
 Contributors are invited to be listed as authors on project publications
 (papers, dataset releases, conference submissions) when they meet either of
 the following thresholds:
@@ -198,13 +221,21 @@ the following thresholds:
   plus cross-checking the result against real hardware.
 - **≥ 1 qualified data submission** — an `energy.json` that validates
   `protocol-conformant` (`tools/validate.py --profile v1.1-core`) and is
-  accepted into the published dataset (see
-  [quantenergy.tech/replications](https://quantenergy.tech/replications/#submit)).
+  accepted into the published dataset, i.e. archived in the
+  [replications gallery](https://quantenergy.tech/replications) as defined
+  [above](#1-run-a-measurement-and-submit-a-replication).
 
-Single-PR bug fixes, typo corrections, and exploratory submissions that do not
-pass validation are acknowledged in release notes and the website gallery but
-do not by themselves qualify for authorship. The maintainer will reach out to
-eligible contributors before each publication to confirm listing preferences.
+Meeting a threshold makes you *eligible*, never listed automatically: the
+maintainer will reach out to eligible contributors before each publication
+to confirm listing preferences, and a contributor who asks to stay at the
+acknowledgment level stays there — the request is honored as final. The
+worked example is @OliverYanghoo: three protocol-conformant V100S
+replications (#42–#44, 2026-11) met the data threshold, and he asked to
+remain acknowledged.
+
+Single-PR bug fixes, typo corrections, and exploratory submissions that do
+not pass validation remain at the acknowledgment tier and do not by
+themselves qualify for authorship.
 
 ## Questions?
 

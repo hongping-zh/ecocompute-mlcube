@@ -132,10 +132,11 @@ Ask **Watt** — a WorkBuddy expert built on the same measured dataset this cont
 ## Acknowledgments
 
 - **@gkgoing** — first independent replication (2026-08): TinyLlama-1.1B NF4 on RTX 3050 Ti Laptop. [Submission →](https://github.com/hongping-zh/ecocompute-mlcube/issues/15)
+- **@OliverYanghoo** — first Volta-generation replication (2026-11): three protocol-conformant measurements on Tesla V100S-PCIE-32GB — TinyLlama-1.1B ([#42](https://github.com/hongping-zh/ecocompute-mlcube/issues/42)), Qwen2.5-3B ([#43](https://github.com/hongping-zh/ecocompute-mlcube/issues/43)), Qwen2.5-7B ([#44](https://github.com/hongping-zh/ecocompute-mlcube/issues/44)) — plus the V100S card-name regex bug report behind the `gpu_arch auto` fix. Acknowledgment-only listing, at his request.
 - **@amarjithkumar2007-wq** — AMD GPU (ROCm) detection and fallback (PR #20); context_length applied in measurement path (PR #22); mock-tested ROCm power/temperature telemetry sampler (PR #31) — now co-author on the container's software record.
 - **@yesheng-oss** — backend contribution guide (PR #21): documents how to add llama.cpp, vLLM, or TensorRT-LLM.
 
-**How contributors become authors**: the thresholds and the difference between authorship and acknowledgment are defined in the [authorship policy](CONTRIBUTING.md#authorship-policy) — two PRs of substance, or one protocol-conformant data submission accepted into the dataset.
+**How contributions are recognized**: three tiers — acknowledgment (the default), dataset contributor, author — and the authorship thresholds (two PRs of substance, or one protocol-conformant data submission accepted into the dataset) are defined in the [authorship policy](CONTRIBUTING.md#authorship-policy). Meeting a threshold makes you eligible, not listed: which tier you occupy is always the contributor's choice.
 
 ---
 
