@@ -30,6 +30,10 @@ A **supplemental energy-methodology container** for LLM inference. It measures t
 
 Every report the CLI emits is machine-checked against Protocol v1.1 (`tools/validate.py`, verdict ladder: `schema-valid` → `protocol-conformant` → `dataset-eligible`). Since [#29](https://github.com/hongping-zh/ecocompute-mlcube/issues/29) the container's own measured reports reach `protocol-conformant` — the validator's rules and the tool's output are in lockstep.
 
+![The differential power bench](assets/bench-light.png)
+
+*The differential method in one picture: an [interactive isometric diagram](https://quantenergy.tech/bench/) — two measurement arms, a spinning flywheel, a chart recorder plotting live power. 148 machine-audited items; a self-contained single file that works offline.*
+
 ---
 
 ## Quick start — 3 commands
