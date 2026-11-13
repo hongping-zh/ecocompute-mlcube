@@ -32,7 +32,7 @@ Every report the CLI emits is machine-checked against Protocol v1.1 (`tools/vali
 
 ![The differential power bench](assets/bench-light.png)
 
-*The differential method in one picture: an [interactive isometric diagram](https://quantenergy.tech/bench/) — two measurement arms, a chart recorder plotting live power. Its demo numbers are illustrative of a memory-bound 1.1B-class run on RTX 4090, where NF4 saves energy (−7.5%); grow the model past the break-even and the same comparison flips to a cost — that flip is the "What we found" finding below. The interactive page is one self-contained file, works offline.*
+*The differential method in one picture: an [interactive isometric diagram](https://quantenergy.tech/bench/) — two measurement arms, a chart recorder plotting live power. The demo session is illustrative of a 7B-class run on RTX 4090, calibrated to the measured ada / NF4 / 7.0B grid cell (-33.7%, n=2): right of Ada's ~3.7B break-even, where NF4 saves energy. Left of the break-even the same comparison costs energy (the 1.1B cell reads +18.4%) — that size-dependent flip is the "What we found" finding below. The interactive page is one self-contained file, works offline.*
 
 ---
 
