@@ -28,7 +28,7 @@ A **supplemental energy-methodology container** for LLM inference. It measures t
 
 **This is not a certified benchmark.** It's a reproducible measurement tool that packages the same inputs as the EcoCompute [`/v1/estimate`](https://quantenergy.tech) API as a portable [MLCube](https://mlcommons.org/en/mlcube/)-compatible container.
 
-Every report the CLI emits is machine-checked against Protocol v1.1 (`tools/validate.py`, verdict ladder: `schema-valid` → `protocol-conformant` → `dataset-eligible`). Since [#29](https://github.com/hongping-zh/ecocompute-mlcube/issues/29) the container's own measured reports reach `protocol-conformant` — the validator's rules and the tool's output are in lockstep.
+Every report the CLI emits is machine-checked against Protocol v1.1 (`tools/validate.py`, verdict ladder: `schema-valid` → `protocol-conformant` → `dataset-eligible`). Since [#29](https://github.com/hongping-zh/ecocompute-mlcube/issues/29) the container's own measured reports reach `protocol-conformant` — the validator's rules and the tool's output are in lockstep. A reusable [GitHub Action](.github/actions/validate-report/action.yml) wraps the same check for replication repos: three lines in your workflow validate `energy.json`, no Docker and no GPU required.
 
 ![The differential power bench](assets/bench.png)
 

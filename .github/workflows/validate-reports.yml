@@ -1,0 +1,37 @@
+name: Validate reports (action self-test)
+
+# Exercises the reusable validate-report action exactly the way an external
+# replication repo would use it, on the same fixture the validator's own unit
+# tests (tests/test_validate.py) call conformant. Both directions are covered:
+# the conformant fixture must pass, and the known-invalid dry-run example must
+# be rejected. If the action or tools/validate.py regresses, this goes red.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: validate-report action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Conformant fixture must pass (dataset-eligible)
+        uses: ./.github/actions/validate-report
+        with:
+          report: tests/fixtures/conformant-v1.1.json
+          profile: dataset-eligible
+          validator-ref: ${{ github.sha }}
+      - name: Known-invalid example must be rejected (v1.1-core)
+        uses: ./.github/actions/validate-report
+        continue-on-error: true
+        id: reject
+        with:
+          report: examples/energy.no-gpu.json
+          validator-ref: ${{ github.sha }}
+      - name: Assert the rejection happened
+        if: steps.reject.outcome != 'failure'
+        run: |
+          echo "::error::the validator accepted examples/energy.no-gpu.json, which is schema-valid but not protocol-conformant"
+          exit 1

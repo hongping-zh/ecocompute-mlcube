@@ -32,6 +32,15 @@ therefore means exactly one thing: gallery archiving.
    ```
    Aim for `protocol-conformant` or `dataset-eligible`. `schema-valid` alone means
    the structure is correct but some protocol MUSTs are not met.
+
+   Or let your CI do it: this repo ships a reusable GitHub Action that runs the
+   same validator — no Docker, no GPU, about 20 seconds:
+   ```yaml
+   - uses: hongping-zh/ecocompute-mlcube/.github/actions/validate-report@main
+     with:
+       report: ecocompute-out/energy.json
+   ```
+   Pin `validator-ref` to a commit SHA or tag for reproducible runs.
 3. Submit at [quantenergy.tech/replications](https://quantenergy.tech/replications/#submit).
    Your `energy.json` is encoded in the URL — nothing is uploaded to a server.
 

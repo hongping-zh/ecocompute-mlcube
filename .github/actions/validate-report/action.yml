@@ -1,0 +1,60 @@
+name: 'EcoCompute validate report'
+description: >-
+  Validate an EcoCompute measurement report JSON against Protocol v1.1, using
+  the same tools/validate.py the maintainers run — no Docker, no GPU, ~20 s.
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  report:
+    description: >-
+      Path(s) to the report JSON file(s), relative to the repository root.
+      Space-separated for multiple files; shell globs are expanded.
+    required: true
+    default: ''
+  profile:
+    description: 'Validation profile: v1.1-core (default) or dataset-eligible.'
+    required: false
+    default: 'v1.1-core'
+  validator-ref:
+    description: >-
+      Ref of hongping-zh/ecocompute-mlcube to run the validator from.
+      Defaults to main; pin a commit SHA or tag for reproducible CI.
+    required: false
+    default: 'main'
+  python-version:
+    description: 'Python version for the validator.'
+    required: false
+    default: '3.12'
+
+runs:
+  using: composite
+  steps:
+    - name: Check out the validator (tools/validate.py + schema)
+      uses: actions/checkout@v7
+      with:
+        repository: hongping-zh/ecocompute-mlcube
+        ref: ${{ inputs.validator-ref }}
+        path: .ecocompute-validator
+        persist-credentials: false
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Install validator dependencies
+      shell: bash
+      run: pip install 'jsonschema>=4.0'
+    - name: Validate report(s)
+      shell: bash
+      run: |
+        status=0
+        for f in ${{ inputs.report }}; do
+          echo "::group::validate $f (${{ inputs.profile }})"
+          if ! python .ecocompute-validator/tools/validate.py "$f" --profile ${{ inputs.profile }}; then
+            status=1
+            echo "::error file=$f::validation failed — see the group above for the violations"
+          fi
+          echo "::endgroup::"
+        done
+        exit $status
