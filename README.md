@@ -30,7 +30,7 @@ A **supplemental energy-methodology container** for LLM inference. It measures t
 
 Every report the CLI emits is machine-checked against Protocol v1.1 (`tools/validate.py`, verdict ladder: `schema-valid` → `protocol-conformant` → `dataset-eligible`). Since [#29](https://github.com/hongping-zh/ecocompute-mlcube/issues/29) the container's own measured reports reach `protocol-conformant` — the validator's rules and the tool's output are in lockstep.
 
-![The differential power bench](assets/bench-light.png)
+![The differential power bench](assets/bench.png)
 
 *The differential method in one picture: an [interactive isometric diagram](https://quantenergy.tech/bench/) — two measurement arms, a chart recorder plotting live power. The demo session is illustrative of a 7B-class run on RTX 4090, calibrated to the measured ada / NF4 / 7.0B grid cell (-33.7%, n=2): right of Ada's ~3.7B break-even, where NF4 saves energy. Left of the break-even the same comparison costs energy (the 1.1B cell reads +18.4%) — that size-dependent flip is the "What we found" finding below. The interactive page is one self-contained file, works offline.*
 
