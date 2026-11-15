@@ -26,6 +26,7 @@ Usage (direct, for development):
 """
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import platform
@@ -905,6 +906,56 @@ def write_power_trace_csv(path, samples):
             f.write("%.3f,%.3f\n" % (t, w))
 
 
+def verify_sidecar_block(csv_path, phases):
+    """L0 verifiability fields, recomputed from the CSV *as written on disk*.
+
+    The digest, window indices and integral are all derived by reading the
+    sidecar file back, never from the in-memory samples: those are
+    full-precision floats and would NOT match the %.3f values that land on
+    disk, so a third party holding the CSV reproduces every number
+    byte-for-byte. The window is the [measure_start_s, measure_end_s] slice
+    (with a half-millisecond tolerance for the %.3f rounding of timestamps);
+    the integral is a trapezoid over those samples with per-pair dt taken
+    from the CSV timestamps.
+    """
+    with open(csv_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    block = {"sha256": digest}
+    ts, ws = [], []
+    with open(csv_path, "r") as f:
+        next(f)  # header
+        for line in f:
+            if not line.strip():
+                continue
+            t, w = line.split(",")
+            ts.append(float(t))
+            ws.append(float(w))
+    lo, hi = phases.get("measure_start_s"), phases.get("measure_end_s")
+    if lo is None or hi is None:
+        return block
+    tol = 5e-4  # timestamps are written %.3f; allow half a milli-second rounding
+    idx = [i for i, t in enumerate(ts) if lo - tol <= t <= hi + tol]
+    if len(idx) < 2:
+        return block
+    first, last = idx[0], idx[-1]
+    value = 0.0
+    for i in range(first, last):
+        value += (ts[i + 1] - ts[i]) * (ws[i] + ws[i + 1]) / 2.0
+    block["window"] = {"first_sample": first, "last_sample": last}
+    block["integral"] = {
+        "rule": ("trapezoid over the in-window samples, per-pair dt from the "
+                 "CSV timestamps (no endpoint interpolation, no left/right "
+                 "Riemann shortcut)"),
+        "value": round(value, 6),
+        "unit": "joules",
+        "note": ("recomputed from the sidecar CSV as written on disk "
+                 "(millisecond-resolution values), so any reader can "
+                 "re-derive it bit-for-bit; it is an independent re-cut of "
+                 "the window, not the source of the reported energy"),
+    }
+    return block
+
+
 def build_power_trace_block(files, sample_rate_hz):
     """Assemble the optional `power_trace` block (schema 1.3).
 
@@ -1356,15 +1407,21 @@ def run(args):
         trace_files = []
         for role, precision, m, fname in specs:
             td = m["power_trace"]
-            write_power_trace_csv(os.path.join(args.output_dir, fname), td["samples"])
-            trace_files.append({
+            csv_path = os.path.join(args.output_dir, fname)
+            write_power_trace_csv(csv_path, td["samples"])
+            descriptor = {
                 "role": role,
                 "precision": precision,
                 "file": fname,
                 "samples": len(td["samples"]),
                 "dropped_samples": td["dropped_samples"],
                 "phases": td["phases"],
-            })
+            }
+            # L0 (schema 1.3, backward-compatible): digest + window indices +
+            # integral recomputed from the CSV bytes on disk, so the reported
+            # figures are re-derivable from the 120 KB sidecar alone.
+            descriptor.update(verify_sidecar_block(csv_path, td["phases"]))
+            trace_files.append(descriptor)
         report["power_trace"] = build_power_trace_block(
             trace_files, int(p.get("sample_rate_hz", 10)))
         print("[ecocompute-mlcube] wrote power trace sidecars: %s "

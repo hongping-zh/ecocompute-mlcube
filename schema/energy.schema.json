@@ -172,6 +172,30 @@
               "file": {"type": "string"},
               "samples": {"type": "integer", "minimum": 0},
               "dropped_samples": {"type": "integer", "minimum": 0},
+              "sha256": {
+                "type": "string",
+                "description": "sha256 of the sidecar CSV file as written on disk. Present on schema 1.3 records produced after the L0 verifiability extension; older records omit it."
+              },
+              "window": {
+                "type": "object",
+                "description": "Indices of the measurement window [measure_start_s, measure_end_s] within this file's sample sequence, so the window can be re-cut without re-running.",
+                "required": ["first_sample", "last_sample"],
+                "properties": {
+                  "first_sample": {"type": "integer", "minimum": 0},
+                  "last_sample": {"type": "integer", "minimum": 0}
+                }
+              },
+              "integral": {
+                "type": "object",
+                "description": "Trapezoidal integral of the in-window samples, recomputed from the CSV as written on disk (not from in-memory floats), so any reader holding the CSV re-derives the same number.",
+                "required": ["rule", "value"],
+                "properties": {
+                  "rule": {"type": "string"},
+                  "value": {"type": "number"},
+                  "unit": {"type": "string"},
+                  "note": {"type": "string"}
+                }
+              },
               "phases": {
                 "type": "object",
                 "description": "Phase boundaries in seconds on this file's trace clock: trace_start_s, load_start_s, model_ready_s, warmup_end_s, measure_start_s, measure_end_s, optionally quality_start_s/quality_end_s, trace_end_s. The reported energy integrates only [measure_start_s, measure_end_s].",

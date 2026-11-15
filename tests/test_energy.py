@@ -360,6 +360,86 @@ def test_write_power_trace_csv_format(tmp_path):
     assert lines[2] == "0.100,289.900"
 
 
+def test_verify_sidecar_block_recomputes_from_disk_bytes(tmp_path):
+    """L0: digest/window/integral must match the CSV *on disk*, not the
+    in-memory floats — otherwise a third party re-deriving from the file
+    would get different numbers."""
+    p = tmp_path / "power_trace.csv"
+    # deliberately more precision than %.3f keeps: the on-disk values are
+    # what the block must agree with
+    ecc.write_power_trace_csv(str(p), [
+        (0.000000, 100.00049),
+        (0.123456, 289.98765),
+        (0.250010, 291.33333),
+        (0.400000, 88.12345),
+    ])
+    block = ecc.verify_sidecar_block(str(p),
+                                     {"measure_start_s": 0.123, "measure_end_s": 0.25})
+    # digest = sha256 of exactly the file a third party downloads
+    import hashlib
+    assert block["sha256"] == hashlib.sha256(p.read_bytes()).hexdigest()
+    # window: the %.3f-rounded timestamps 0.123 and 0.250 bound the slice
+    assert block["window"] == {"first_sample": 1, "last_sample": 2}
+    # integral over the on-disk values (289.988, 291.333), trapezoid with dt=0.127
+    expected = (0.250 - 0.123) * (289.988 + 291.333) / 2.0
+    assert block["integral"]["value"] == round(expected, 6)
+    assert block["integral"]["unit"] == "joules"
+
+
+def test_verify_sidecar_block_is_a_third_party_recomputation(tmp_path):
+    """Simulate an independent reader: parse the CSV with no knowledge of the
+    in-memory samples and reproduce window + integral bit-for-bit."""
+    p = tmp_path / "power_trace.csv"
+    raw = [(i / 10.0, 80.0 + 5.0 * i) for i in range(25)]  # 0.0 .. 2.4 s
+    ecc.write_power_trace_csv(str(p), raw)
+    phases = {"measure_start_s": 0.55, "measure_end_s": 1.9,
+              "trace_start_s": 0.0, "trace_end_s": 2.4}
+    block = ecc.verify_sidecar_block(str(p), phases)
+    # independent re-derivation from the file
+    rows = [ln.split(",") for ln in p.read_text().strip().splitlines()[1:]]
+    ts = [float(a) for a, _ in rows]
+    ws = [float(b) for _, b in rows]
+    idx = [i for i, t in enumerate(ts) if phases["measure_start_s"] <= t <= phases["measure_end_s"]]
+    assert block["window"]["first_sample"] == idx[0]
+    assert block["window"]["last_sample"] == idx[-1]
+    value = sum((ts[i + 1] - ts[i]) * (ws[i] + ws[i + 1]) / 2.0
+               for i in range(idx[0], idx[-1]))
+    assert block["integral"]["value"] == round(value, 6)
+    assert "trapezoid" in block["integral"]["rule"]
+
+
+def test_verify_sidecar_block_edges(tmp_path):
+    p = tmp_path / "power_trace.csv"
+    ecc.write_power_trace_csv(str(p), [(0.0, 71.2), (0.1, 289.9)])
+    # no measurement markers -> digest only, no window/integral claims
+    b = ecc.verify_sidecar_block(str(p), {})
+    assert set(b) == {"sha256"}
+    # window holds fewer than two samples -> still no integral claim
+    b = ecc.verify_sidecar_block(str(p), {"measure_start_s": 0.05,
+                                          "measure_end_s": 0.06})
+    assert set(b) == {"sha256"}
+
+
+def test_power_trace_block_with_l0_fields_is_schema_valid(tmp_path):
+    """A power_trace block carrying the L0 verifiability fields validates."""
+    p = tmp_path / "power_trace.csv"
+    ecc.write_power_trace_csv(str(p), [(i / 10.0, 100.0 + i) for i in range(12)])
+    phases = {"trace_start_s": 0.0, "load_start_s": 0.01, "model_ready_s": 0.2,
+              "warmup_end_s": 0.5, "measure_start_s": 0.6,
+              "measure_end_s": 1.0, "trace_end_s": 1.1}
+    l0 = ecc.verify_sidecar_block(str(p), phases)
+    entry = {"role": "primary", "precision": "NF4", "file": "power_trace.csv",
+             "samples": 12, "dropped_samples": 0, "phases": phases}
+    entry.update(l0)
+    assert "sha256" in entry and "window" in entry and "integral" in entry
+    block = ecc.build_power_trace_block([entry], 10)
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    report = ecc.build_report(params, measured=_measured(), ref=None)
+    report["power_trace"] = block
+    jsonschema.validate(report, SCHEMA)
+    assert ecc._check_against_schema(report, SCHEMA) == []
+
+
 def test_power_trace_block_is_schema_valid_and_pins_the_window():
     files = [
         {"role": "primary", "precision": "NF4", "file": "power_trace.csv",
