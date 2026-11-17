@@ -169,6 +169,11 @@
             "properties": {
               "role": {"type": "string", "enum": ["primary", "fp16_baseline"]},
               "precision": {"type": "string"},
+              "stream": {
+                "type": "string",
+                "enum": ["whole_run", "measure_window"],
+                "description": "Which sampler stream this file holds. whole_run: the long-running tracer from before model load (context for post-hoc window re-cuts; carries phase markers but no integral claim — it is a second, unsynchronized 10 Hz stream). measure_window: the dedicated generation-window sampler's own samples — the exact stream total_energy_joules was computed from; sha256/window/integral on such a file re-derive the reported headline. Absent on pre-L0 records (treated as whole_run)."
+              },
               "file": {"type": "string"},
               "samples": {"type": "integer", "minimum": 0},
               "dropped_samples": {"type": "integer", "minimum": 0},

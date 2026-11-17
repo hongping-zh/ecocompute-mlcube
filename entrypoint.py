@@ -335,7 +335,11 @@ class PowerSampler(threading.Thread):
         while not self._stop_evt.is_set():
             try:
                 mw = self._pynvml.nvmlDeviceGetPowerUsage(self.handle)  # milliwatts
-                self.samples.append((time.time() - self.t0, mw / 1000.0))
+                # t is rounded to the same 3 decimals the sidecar CSV writes
+                # (%.3f), so the in-memory integration and any re-derivation
+                # from the CSV bytes see identical floats (L0 bit-for-bit).
+                # Watts are already milliwatt-quantized (<= 3 decimals).
+                self.samples.append((round(time.time() - self.t0, 3), mw / 1000.0))
                 consecutive = 0
             except Exception as e:  # NVMLError / unsupported field on this card
                 self.dropped += 1
@@ -820,6 +824,10 @@ def _measure_with_handle(pynvml, handle, gpu_name, model_name, precision, batch_
             "samples": tracer.samples,
             "phases": phases,
             "dropped_samples": tracer.dropped,
+            # The dedicated generation-window sampler's own samples: this is
+            # the stream total_energy_joules is computed from, so its sidecar
+            # CSV (not the whole-run trace) is the L0 verification target.
+            "window_samples": sampler.samples,
         }
     return result
 
@@ -906,17 +914,27 @@ def write_power_trace_csv(path, samples):
             f.write("%.3f,%.3f\n" % (t, w))
 
 
-def verify_sidecar_block(csv_path, phases):
+def verify_sidecar_block(csv_path, phases=None, full_window=False):
     """L0 verifiability fields, recomputed from the CSV *as written on disk*.
 
     The digest, window indices and integral are all derived by reading the
-    sidecar file back, never from the in-memory samples: those are
-    full-precision floats and would NOT match the %.3f values that land on
-    disk, so a third party holding the CSV reproduces every number
-    byte-for-byte. The window is the [measure_start_s, measure_end_s] slice
-    (with a half-millisecond tolerance for the %.3f rounding of timestamps);
-    the integral is a trapezoid over those samples with per-pair dt taken
-    from the CSV timestamps.
+    sidecar file back, never from the in-memory samples: timestamps are
+    captured already rounded to the %.3f the CSV writes and watts are
+    milliwatt-quantized, so the on-disk values and the in-memory values are
+    the same floats and a third party holding the CSV reproduces every number
+    bit-for-bit.
+
+    Two modes:
+    - full_window=True: the whole file IS the measurement window (the
+      dedicated generation-window sampler's own CSV). The integral is then
+      the exact same computation that produced total_energy_joules — the
+      reader re-derives the reported headline, round(value, 3) == it.
+    - phases given: slice [measure_start_s, measure_end_s] out of a
+      whole-run trace (with a half-millisecond tolerance for timestamp
+      rounding). The integral is then an independent re-cut, NOT the
+      headline: the whole-run stream and the dedicated sampler are two
+      unsynchronized 10 Hz streams, so their window integrals differ by
+      sampling-phase noise.
     """
     with open(csv_path, "rb") as f:
         digest = hashlib.sha256(f.read()).hexdigest()
@@ -930,17 +948,24 @@ def verify_sidecar_block(csv_path, phases):
             t, w = line.split(",")
             ts.append(float(t))
             ws.append(float(w))
-    lo, hi = phases.get("measure_start_s"), phases.get("measure_end_s")
-    if lo is None or hi is None:
-        return block
-    tol = 5e-4  # timestamps are written %.3f; allow half a milli-second rounding
-    idx = [i for i, t in enumerate(ts) if lo - tol <= t <= hi + tol]
-    if len(idx) < 2:
-        return block
-    first, last = idx[0], idx[-1]
+    if full_window:
+        if len(ts) < 2:
+            return block
+        first, last = 0, len(ts) - 1
+    else:
+        lo, hi = (phases or {}).get("measure_start_s"), (phases or {}).get("measure_end_s")
+        if lo is None or hi is None:
+            return block
+        tol = 5e-4  # timestamps are written %.3f; allow half a milli-second rounding
+        idx = [i for i, t in enumerate(ts) if lo - tol <= t <= hi + tol]
+        if len(idx) < 2:
+            return block
+        first, last = idx[0], idx[-1]
+    # Same expression and operand order as PowerSampler.energy_joules(), so
+    # full-window integrals match the headline computation bit-for-bit.
     value = 0.0
     for i in range(first, last):
-        value += (ts[i + 1] - ts[i]) * (ws[i] + ws[i + 1]) / 2.0
+        value += (ws[i] + ws[i + 1]) / 2.0 * (ts[i + 1] - ts[i])
     block["window"] = {"first_sample": first, "last_sample": last}
     block["integral"] = {
         "rule": ("trapezoid over the in-window samples, per-pair dt from the "
@@ -948,10 +973,14 @@ def verify_sidecar_block(csv_path, phases):
                  "Riemann shortcut)"),
         "value": round(value, 6),
         "unit": "joules",
-        "note": ("recomputed from the sidecar CSV as written on disk "
-                 "(millisecond-resolution values), so any reader can "
-                 "re-derive it bit-for-bit; it is an independent re-cut of "
-                 "the window, not the source of the reported energy"),
+        "note": ("recomputed from the sidecar CSV as written on disk, so any "
+                 "reader can re-derive it bit-for-bit" +
+                 ("; this is the same integration that produced "
+                  "total_energy_joules — round to 3 decimals to compare"
+                  if full_window else
+                  "; an independent re-cut of the whole-run trace, not the "
+                  "source of the reported energy (two unsynchronized 10 Hz "
+                  "streams differ by sampling-phase noise)")),
     }
     return block
 
@@ -972,9 +1001,14 @@ def build_power_trace_block(files, sample_rate_hz):
             "reported energy = trapezoidal integral of a dedicated sampler running "
             "within [phases.measure_start_s, phases.measure_end_s] (generation only: "
             "model load, quantization and warm-up excluded; idle power not "
-            "subtracted). The sidecar trace spans the whole run from before model "
-            "load, so generation-only and whole-process windows can both be re-cut "
-            "from it without re-running"
+            "subtracted). That sampler's own samples are dumped to the "
+            "stream=measure_window sidecar, which carries the sha256/window/"
+            "integral fields: the reported figure is re-derivable from that file "
+            "bit-for-bit. The whole-run trace (stream=whole_run) spans the run "
+            "from before model load, so generation-only and whole-process "
+            "windows can both be re-cut from it without re-running; its integral "
+            "is an independent re-cut, not the reported figure (two "
+            "unsynchronized 10 Hz streams differ by sampling-phase noise)"
         ),
         "files": files,
         "note": POWER_TRACE_NOTE,
@@ -1405,27 +1439,47 @@ def run(args):
         if fp16_measured and fp16_measured.get("power_trace"):
             specs.append(("fp16_baseline", "FP16", fp16_measured, "power_trace_fp16.csv"))
         trace_files = []
+        trace_files = []
         for role, precision, m, fname in specs:
             td = m["power_trace"]
-            csv_path = os.path.join(args.output_dir, fname)
-            write_power_trace_csv(csv_path, td["samples"])
+            base, ext = fname.rsplit(".", 1)
+            fname_window = "%s_measure.%s" % (base, ext)
+            # Whole-run trace: context for post-hoc window re-cuts. No L0
+            # integral claims on it — it is a second, unsynchronized stream.
+            whole_csv = os.path.join(args.output_dir, fname)
+            write_power_trace_csv(whole_csv, td["samples"])
             descriptor = {
                 "role": role,
                 "precision": precision,
                 "file": fname,
+                "stream": "whole_run",
                 "samples": len(td["samples"]),
                 "dropped_samples": td["dropped_samples"],
                 "phases": td["phases"],
             }
-            # L0 (schema 1.3, backward-compatible): digest + window indices +
-            # integral recomputed from the CSV bytes on disk, so the reported
-            # figures are re-derivable from the 120 KB sidecar alone.
-            descriptor.update(verify_sidecar_block(csv_path, td["phases"]))
+            descriptor.update(verify_sidecar_block(whole_csv))  # digest only
+            trace_files.append(descriptor)
+            # Measure-window sidecar: the dedicated sampler's own samples —
+            # the exact stream total_energy_joules was computed from. The
+            # L0 fields land here, so a reader re-derives the headline
+            # bit-for-bit instead of a phase-shifted look-alike.
+            window_csv = os.path.join(args.output_dir, fname_window)
+            write_power_trace_csv(window_csv, td["window_samples"])
+            descriptor = {
+                "role": role,
+                "precision": precision,
+                "file": fname_window,
+                "stream": "measure_window",
+                "samples": len(td["window_samples"]),
+                "dropped_samples": td["dropped_samples"],
+            }
+            descriptor.update(verify_sidecar_block(window_csv, full_window=True))
             trace_files.append(descriptor)
         report["power_trace"] = build_power_trace_block(
             trace_files, int(p.get("sample_rate_hz", 10)))
         print("[ecocompute-mlcube] wrote power trace sidecars: %s "
-              "(window can be re-cut post hoc; reported energy unchanged)"
+              "(measure-window files re-derive the reported energy bit-for-bit; "
+              "whole-run files can be re-cut post hoc)"
               % ", ".join(e["file"] for e in trace_files))
 
     out = os.path.join(args.output_dir, "energy.json")

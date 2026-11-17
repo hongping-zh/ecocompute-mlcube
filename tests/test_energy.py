@@ -381,7 +381,8 @@ def test_verify_sidecar_block_recomputes_from_disk_bytes(tmp_path):
     # window: the %.3f-rounded timestamps 0.123 and 0.250 bound the slice
     assert block["window"] == {"first_sample": 1, "last_sample": 2}
     # integral over the on-disk values (289.988, 291.333), trapezoid with dt=0.127
-    expected = (0.250 - 0.123) * (289.988 + 291.333) / 2.0
+    # (same expression and operand order as PowerSampler.energy_joules)
+    expected = (289.988 + 291.333) / 2.0 * (0.250 - 0.123)
     assert block["integral"]["value"] == round(expected, 6)
     assert block["integral"]["unit"] == "joules"
 
@@ -402,8 +403,8 @@ def test_verify_sidecar_block_is_a_third_party_recomputation(tmp_path):
     idx = [i for i, t in enumerate(ts) if phases["measure_start_s"] <= t <= phases["measure_end_s"]]
     assert block["window"]["first_sample"] == idx[0]
     assert block["window"]["last_sample"] == idx[-1]
-    value = sum((ts[i + 1] - ts[i]) * (ws[i] + ws[i + 1]) / 2.0
-               for i in range(idx[0], idx[-1]))
+    value = sum((ws[i] + ws[i + 1]) / 2.0 * (ts[i + 1] - ts[i])
+                for i in range(idx[0], idx[-1]))
     assert block["integral"]["value"] == round(value, 6)
     assert "trapezoid" in block["integral"]["rule"]
 
@@ -422,22 +423,83 @@ def test_verify_sidecar_block_edges(tmp_path):
 
 def test_power_trace_block_with_l0_fields_is_schema_valid(tmp_path):
     """A power_trace block carrying the L0 verifiability fields validates."""
-    p = tmp_path / "power_trace.csv"
+    p = tmp_path / "power_trace_measure.csv"
     ecc.write_power_trace_csv(str(p), [(i / 10.0, 100.0 + i) for i in range(12)])
-    phases = {"trace_start_s": 0.0, "load_start_s": 0.01, "model_ready_s": 0.2,
-              "warmup_end_s": 0.5, "measure_start_s": 0.6,
-              "measure_end_s": 1.0, "trace_end_s": 1.1}
-    l0 = ecc.verify_sidecar_block(str(p), phases)
-    entry = {"role": "primary", "precision": "NF4", "file": "power_trace.csv",
-             "samples": 12, "dropped_samples": 0, "phases": phases}
+    l0 = ecc.verify_sidecar_block(str(p), full_window=True)
+    entry = {"role": "primary", "precision": "NF4", "file": "power_trace_measure.csv",
+             "stream": "measure_window", "samples": 12, "dropped_samples": 0}
     entry.update(l0)
     assert "sha256" in entry and "window" in entry and "integral" in entry
+    assert entry["window"] == {"first_sample": 0, "last_sample": 11}
     block = ecc.build_power_trace_block([entry], 10)
     params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
     report = ecc.build_report(params, measured=_measured(), ref=None)
     report["power_trace"] = block
     jsonschema.validate(report, SCHEMA)
     assert ecc._check_against_schema(report, SCHEMA) == []
+
+
+def test_measure_window_sidecar_rederives_the_headline_bit_for_bit(tmp_path):
+    """L0 correction (11-17): the integral must verify the number the report
+    actually headlines. The dedicated sampler's own samples are dumped to a
+    stream=measure_window CSV, and because timestamps are captured already
+    quantized to the %.3f the CSV writes, in-memory and on-disk integrals
+    are the *same* computation — not merely close."""
+    fake = types.ModuleType("pynvml")
+    fake.nvmlDeviceGetPowerUsage = lambda _h: 250_000
+    sys.modules["pynvml"] = fake
+    try:
+        s = ecc.PowerSampler(handle=object(), hz=10)
+    finally:
+        del sys.modules["pynvml"]
+    s.samples = [(0.000, 100.0), (0.123, 289.987), (0.250, 291.333), (0.400, 88.123)]
+    j = s.energy_joules()
+    p = tmp_path / "power_trace_measure.csv"
+    ecc.write_power_trace_csv(str(p), s.samples)
+    block = ecc.verify_sidecar_block(str(p), full_window=True)
+    assert block["window"] == {"first_sample": 0, "last_sample": 3}
+    assert block["integral"]["value"] == round(j, 6)
+    assert "same integration that produced total_energy_joules" in block["integral"]["note"]
+    # independent reader: integrate the file, no knowledge of the sampler
+    rows = [ln.split(",") for ln in p.read_text().strip().splitlines()[1:]]
+    ts = [float(a) for a, _ in rows]
+    ws = [float(b) for _, b in rows]
+    disk = 0.0
+    for i in range(len(ts) - 1):
+        disk += (ws[i] + ws[i + 1]) / 2.0 * (ts[i + 1] - ts[i])
+    assert disk == j  # bit-for-bit, not pytest.approx
+    assert round(disk, 3) == round(j, 3)
+
+
+def test_whole_run_sidecar_makes_no_integral_claim(tmp_path):
+    """The whole-run trace is a second, unsynchronized 10 Hz stream: it gets a
+    digest (integrity of the context file) but never a window/integral claim
+    that a reader could mistake for the headline."""
+    p = tmp_path / "power_trace.csv"
+    ecc.write_power_trace_csv(str(p), [(i / 10.0, 80.0 + i) for i in range(25)])
+    phases = {"measure_start_s": 0.55, "measure_end_s": 1.9}
+    block = ecc.verify_sidecar_block(str(p), phases)
+    assert set(block) >= {"sha256"}  # digest present
+    assert "not the source of the reported energy" in block["integral"]["note"]
+
+
+def test_power_sampler_quantizes_timestamps_to_csv_resolution():
+    """run() rounds t to 3 decimals at capture, so what energy_joules()
+    integrates and what %.3f writes to the CSV are identical floats."""
+    fake = types.ModuleType("pynvml")
+    fake.nvmlDeviceGetPowerUsage = lambda _h: 250_123  # 250.123 W
+    sys.modules["pynvml"] = fake
+    try:
+        s = ecc.PowerSampler(handle=object(), hz=100)
+        s.start()
+        time.sleep(0.15)
+        s.stop()
+        assert len(s.samples) >= 2
+        for t, w in s.samples:
+            assert t == round(t, 3)          # exactly what %.3f writes back
+            assert w * 1000 == int(w * 1000)  # milliwatt-quantized watts
+    finally:
+        del sys.modules["pynvml"]
 
 
 def test_power_trace_block_is_schema_valid_and_pins_the_window():
