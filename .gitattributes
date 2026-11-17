@@ -1,3 +1,14 @@
+# The quality corpus must check out byte-identical everywhere: its sha256
+# is the comparability key between runs (see quality/README.md).
+quality/eval_text.txt text eol=lf
+
+# Shell scripts must be LF: a CRLF release asset kills `curl ... | bash` on
+# Linux with "pipefail: invalid option name" (found by an external
+# reproducer, 2026-10-28). Every *.sh in this repo — and every release
+# asset built from them — must be LF.
+*.sh text eol=lf
+
 # Sidecar CSVs are digest-covered: sha256 is computed over LF bytes.
-# A CRLF checkout would break the recorded digest. Force LF everywhere.
+# A CRLF checkout (core.autocrlf on Windows) would silently break every
+# recorded digest. Force LF everywhere.
 *.csv text eol=lf
