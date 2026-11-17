@@ -40,8 +40,17 @@ therefore means exactly one thing: gallery archiving.
      with:
        report: ecocompute-out/energy.json
    ```
-   Pin `validator-ref` to a commit SHA or tag for reproducible runs.
-3. Submit at [quantenergy.tech/replications](https://quantenergy.tech/replications/#submit).
+   Pin `validator-ref` to a commit SHA or tag for reproducible runs; by default
+   it resolves to the ref the Action itself was invoked from.
+3. **If you ran with `--power_trace`**, anyone can re-derive your energy figure
+   from the measure-window sidecar CSV alone — no GPU, about two minutes:
+   ```bash
+   python3 -c "import hashlib,json; r=json.load(open('ecocompute-out/energy.json')); f=r['power_trace']['files']; mw=[x for x in f if x.get('stream')=='measure_window'][0]; import sys; d=hashlib.sha256(open('ecocompute-out/'+mw['file'],'rb').read()).hexdigest(); print('YES — digest matches' if d==mw['sha256'] else 'TAMPERED')"
+   ```
+   A runnable example pair ships in `examples/accepted-trace/` (digest
+   matches) and `examples/rejected-tampered-trace/` (one byte changed →
+   mismatch).
+4. Submit at [quantenergy.tech/replications](https://quantenergy.tech/replications/#submit).
    Your `energy.json` is encoded in the URL — nothing is uploaded to a server.
 
 **No GPU?** Use the [Colab notebook](https://colab.research.google.com/github/hongping-zh/quant-energy/blob/main/notebooks/ecocompute-measure.ipynb)

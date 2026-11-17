@@ -289,3 +289,51 @@ def test_entrypoint_validate_subcommand(tmp_path):
          str(FIX / "conformant-v1.1.json")], capture_output=True, text=True)
     assert r.returncode == 0
     assert "protocol-conformant" in r.stdout
+
+
+# --- 4.7 power-trace L0 fields (schema 1.3-r7) -----------------------------
+
+def _l0_report(entry_extra, block_extra=None):
+    r = load("conformant-v1.1.json")
+    entry = {"role": "primary", "precision": "NF4", "file": "power_trace.csv",
+             "stream": "measure_window", "samples": 3, "dropped_samples": 0,
+             "sha256": "a" * 64, "bytes": 12,
+             "sample_window": {"first_sample": 0, "last_sample": 2},
+             "integral": {"rule": "trapezoid-csv-v1", "value": 123.4,
+                          "unit": "joules", "note": "n"}}
+    entry.update(entry_extra)
+    r["power_trace"]["files"] = [entry]
+    if block_extra:
+        r["power_trace"].update(block_extra)
+    return r
+
+
+def test_l0_fields_on_conformant_report_stay_conformant():
+    verdict, viol, _ = validate.validate_report(_l0_report({}), SCHEMA, "v1.1-core")
+    assert verdict == "protocol-conformant", viol
+
+
+def test_l0_revision_requires_digests_on_every_file():
+    r = _l0_report({}, {"l0_revision": "1.3-r7"})
+    del r["power_trace"]["files"][0]["sha256"]
+    verdict, viol, _ = validate.validate_report(r, SCHEMA, "v1.1-core")
+    assert verdict == "schema-valid"
+    assert any("4.7.1" in v for v in viol), viol
+
+
+def test_measure_window_file_must_carry_the_full_l0_set():
+    r = _l0_report({})
+    del r["power_trace"]["files"][0]["integral"]
+    verdict, viol, _ = validate.validate_report(r, SCHEMA, "v1.1-core")
+    assert verdict == "schema-valid"
+    assert any("4.7.2" in v and "integral" in v for v in viol), viol
+
+
+def test_sample_window_indices_must_be_coherent_with_samples():
+    r = _l0_report({"sample_window": {"first_sample": 0, "last_sample": 7}})
+    verdict, viol, _ = validate.validate_report(r, SCHEMA, "v1.1-core")
+    assert verdict == "schema-valid"
+    assert any("4.7.4" in v for v in viol), viol
+    r2 = _l0_report({"sample_window": {"first_sample": 2, "last_sample": 1}})
+    _, viol2, _ = validate.validate_report(r2, SCHEMA, "v1.1-core")
+    assert any("4.7.4" in v for v in viol2), viol2

@@ -200,6 +200,9 @@ Populated `thermal` block: GPU temperature at measurement start/end/peak via NVM
 ### Schema 1.3-r6 (2026-10-21)
 Added optional `engine` object: inference engine identity (name, version, backend, model_format, artifact hash, tokenizer provenance, sync point). Absent means the transformers reference stack. Cross-engine runs are valid measurements but engine-relative — a separate comparability class, never pooled with the v1.1.0 transformers reference curves.
 
+### Schema 1.3-r7 (2026-11, L0 verifiability)
+Every `power_trace` file entry may now carry `sha256` + `bytes` (sidecar digest and size, distinguishing a truncated download from a tampered file), `sample_window` (window indices: 0-based data rows, both ends inclusive) and `integral` (`rule: "trapezoid-csv-v1"`, `value` in joules). Two changes of substance: **(1)** the dedicated generation-window sampler dumps its *own* CSV (`power_trace_measure*.csv`, `stream: "measure_window"`) — timestamps are quantized to `%.3f` at capture, so `round(integral.value, 3) == results.total_energy_joules` **exactly**, re-derivable by any reader bit-for-bit; **(2)** the whole-run trace (`stream: "whole_run"`) keeps phase markers and a digest but makes **no** integral claim — it is a second, unsynchronized 10 Hz stream, and integrating its window slice reproduces the headline only up to sampling-phase noise (~2%), not exactly. Reports carry `power_trace.l0_revision: "1.3-r7"` as the decidable production stamp; `files[].window` is renamed `sample_window` (three-way name collision with `power_trace.window` and `measurement.window`). Additive — older reports remain valid; the validator gained clause 4.7 (cross-field coherence of the L0 fields).
+
 ---
 
 ## Context length comparability
@@ -306,6 +309,14 @@ Energy on its own cannot say whether a quantization was worth taking: a format t
 - A second NVML sampler records the **whole run from before the model is loaded** — load, quantization, warm-up, generation, quality probe — and is dumped to `power_trace.csv` (`power_trace_fp16.csv` for the baseline run)
 - The report gains a `power_trace` block listing the files, sample counts and **phase markers** (`load_start_s`, `model_ready_s`, `warmup_end_s`, `measure_start_s`, `measure_end_s`, …) on each file's trace clock
 - The reported `total_energy_joules` is computed by the *same dedicated generation-window sampler as before* — enabling the sidecar changes no reported number, it only adds what you can check later
+
+**L0 verifiability fields (schema 1.3-r7)**: the dedicated sampler's own samples are dumped to a second sidecar (`power_trace_measure.csv`, `power_trace_measure_fp16.csv`; `stream: "measure_window"`). Each file entry records `sha256` + `bytes` (integrity: same size + different digest = tampered; different size = truncated download), `sample_window` (inclusive 0-based data-row indices of the measurement window) and `integral` (`rule: "trapezoid-csv-v1"`, the exact trapezoid that produced the headline, recomputed from the CSV bytes as written on disk). Because timestamps are quantized to `%.3f` at capture, **any reader holding the ~KB CSV re-derives `round(integral.value, 3) == results.total_energy_joules` bit-for-bit** — try it, no GPU needed:
+
+```bash
+python3 -c "import hashlib,json; r=json.load(open('examples/accepted-trace/energy.json')); d=hashlib.sha256(open('examples/accepted-trace/power_trace_measure.csv','rb').read()).hexdigest(); print('YES' if d==r['power_trace']['files'][0]['sha256'] else 'TAMPERED')"
+```
+
+A runnable accepted/rejected pair ships in [`examples/accepted-trace/`](examples/accepted-trace/) and [`examples/rejected-tampered-trace/`](examples/rejected-tampered-trace/) (one watt digit changed → digest mismatch). The whole-run trace (`stream: "whole_run"`) keeps the phase markers but deliberately carries no integral claim: it is a second, unsynchronized 10 Hz stream, so its window integral approximates the headline only up to sampling-phase noise (~2%).
 
 With the sidecar, any reader can re-integrate the trace over a different window (e.g. whole-process including load, or decode-only) without re-running the GPU: the phase markers are the cut points. Files are plain two-column CSVs (`t_s,power_w`), one per measured run.
 

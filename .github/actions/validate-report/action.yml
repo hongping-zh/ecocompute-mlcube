@@ -20,9 +20,10 @@ inputs:
   validator-ref:
     description: >-
       Ref of hongping-zh/ecocompute-mlcube to run the validator from.
-      Defaults to main; pin a commit SHA or tag for reproducible CI.
+      Defaults to the ref this Action was invoked from (github.action_ref);
+      pin a commit SHA or tag for reproducible CI.
     required: false
-    default: 'main'
+    default: ''
   python-version:
     description: 'Python version for the validator.'
     required: false
@@ -35,7 +36,10 @@ runs:
       uses: actions/checkout@v7
       with:
         repository: hongping-zh/ecocompute-mlcube
-        ref: ${{ inputs.validator-ref }}
+        # Same ref the caller pinned this Action to, unless the caller pins
+        # the validator explicitly; an empty github.action_ref (local
+        # self-test) falls back to main.
+        ref: ${{ inputs.validator-ref != '' && inputs.validator-ref || github.action_ref || 'main' }}
         path: .ecocompute-validator
         persist-credentials: false
     - name: Set up Python
@@ -47,11 +51,22 @@ runs:
       run: pip install 'jsonschema>=4.0'
     - name: Validate report(s)
       shell: bash
+      env:
+        # Inputs reach the script ONLY through environment variables: direct
+        # ${{ }} interpolation into the script text is a command-injection
+        # surface in every calling repository (e.g. a PR title flowing into
+        # `report`). Never interpolate inputs into run: again.
+        REPORT_PATHS: ${{ inputs.report }}
+        PROFILE: ${{ inputs.profile }}
       run: |
+        case "$PROFILE" in
+          v1.1-core|dataset-eligible) ;;
+          *) echo "::error::unsupported profile '$PROFILE' (allowed: v1.1-core, dataset-eligible)"; exit 64 ;;
+        esac
         status=0
-        for f in ${{ inputs.report }}; do
-          echo "::group::validate $f (${{ inputs.profile }})"
-          if ! python .ecocompute-validator/tools/validate.py "$f" --profile ${{ inputs.profile }}; then
+        for f in $REPORT_PATHS; do
+          echo "::group::validate $f ($PROFILE)"
+          if ! python .ecocompute-validator/tools/validate.py "$f" --profile "$PROFILE"; then
             status=1
             echo "::error file=$f::validation failed — see the group above for the violations"
           fi

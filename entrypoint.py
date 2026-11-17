@@ -41,6 +41,14 @@ SCHEMA_VERSION = "ecocompute-energy/1.3"
 # 1.1 added the optional `quality` block; 1.2 (protocol 1.1) added `thermal`;
 # 1.3 adds the optional `power_trace` block: raw NVML sidecar samples covering
 # the whole run, so the measurement window can be re-cut post hoc.
+# 1.3-r7 (L0 verifiability, 2026-11): each sidecar file gains sha256 + bytes;
+# the dedicated generation-window sampler dumps its own stream=measure_window
+# CSV whose integral re-derives total_energy_joules bit-for-bit (timestamps
+# are quantized to %.3f at capture, so on-disk and in-memory floats match);
+# files[].sample_window (renamed from `window` to avoid the three-way name
+# collision with power_trace.window and measurement.window) pins the window
+# indices; integral.rule is the versioned tag trapezoid-csv-v1. Reports carry
+# power_trace.l0_revision: "1.3-r7" as the decidable production stamp.
 
 # Website hooks (opt-in via --prefetch / --share). Both are best-effort and never
 # block or alter the measurement; --share encodes the result point into the URL
@@ -937,8 +945,13 @@ def verify_sidecar_block(csv_path, phases=None, full_window=False):
       sampling-phase noise.
     """
     with open(csv_path, "rb") as f:
-        digest = hashlib.sha256(f.read()).hexdigest()
-    block = {"sha256": digest}
+        raw = f.read()
+    block = {
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        # file size in bytes: distinguishes a truncated download (size
+        # mismatch) from a tampered file (digest mismatch at equal size)
+        "bytes": len(raw),
+    }
     ts, ws = [], []
     with open(csv_path, "r") as f:
         next(f)  # header
@@ -966,15 +979,24 @@ def verify_sidecar_block(csv_path, phases=None, full_window=False):
     value = 0.0
     for i in range(first, last):
         value += (ws[i] + ws[i + 1]) / 2.0 * (ts[i + 1] - ts[i])
-    block["window"] = {"first_sample": first, "last_sample": last}
+    block["sample_window"] = {"first_sample": first, "last_sample": last}
     block["integral"] = {
-        "rule": ("trapezoid over the in-window samples, per-pair dt from the "
-                 "CSV timestamps (no endpoint interpolation, no left/right "
-                 "Riemann shortcut)"),
+        # Versioned algorithm identifier, not prose: two independent
+        # implementations must agree on one machine-readable rule (the
+        # prose explanation lives in `note` and in the schema description).
+        "rule": "trapezoid-csv-v1",
         "value": round(value, 6),
         "unit": "joules",
-        "note": ("recomputed from the sidecar CSV as written on disk, so any "
-                 "reader can re-derive it bit-for-bit" +
+        "note": ("trapezoid over the in-window samples: per-pair dt from the "
+                 "CSV timestamps, no endpoint interpolation, no left/right "
+                 "Riemann shortcut; recomputed from the sidecar CSV as "
+                 "written on disk, so any reader can re-derive it "
+                 "bit-for-bit. Sample indices are 0-based data rows (row 0 "
+                 "= first row after the header) and inclusive at both "
+                 "ends. Watts are milliwatt-quantized at capture, so the "
+                 "%.3f quantization floor is about ±0.3 W·s per 600 s "
+                 "window — a re-derivation matching the headline inside "
+                 "that floor is expected, not a bug" +
                  ("; this is the same integration that produced "
                   "total_energy_joules — round to 3 decimals to compare"
                   if full_window else
@@ -997,14 +1019,18 @@ def build_power_trace_block(files, sample_rate_hz):
         "columns": ["t_s", "power_w"],
         "sample_rate_hz": int(sample_rate_hz),
         "window": "generation",
+        # Machine-readable production stamp (schema 1.3-r7): present means
+        # every file below was digest-verified at write time, so a missing
+        # sha256 on a 1.3-r7 record is a defect, not a pre-L0 record.
+        "l0_revision": "1.3-r7",
         "window_note": (
             "reported energy = trapezoidal integral of a dedicated sampler running "
             "within [phases.measure_start_s, phases.measure_end_s] (generation only: "
             "model load, quantization and warm-up excluded; idle power not "
             "subtracted). That sampler's own samples are dumped to the "
-            "stream=measure_window sidecar, which carries the sha256/window/"
-            "integral fields: the reported figure is re-derivable from that file "
-            "bit-for-bit. The whole-run trace (stream=whole_run) spans the run "
+            "stream=measure_window sidecar, which carries the sha256/bytes/"
+            "sample_window/integral fields: the reported figure is re-derivable "
+            "from that file bit-for-bit. The whole-run trace (stream=whole_run) spans the run "
             "from before model load, so generation-only and whole-process "
             "windows can both be re-cut from it without re-running; its integral "
             "is an independent re-cut, not the reported figure (two "

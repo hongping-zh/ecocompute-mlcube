@@ -276,6 +276,46 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
         # honest failure states are VALID: steady_state_reached=false and
         # basis=unavailable pass - only fabrication fails.
 
+    # --- 4.7 Power-trace L0 verifiability fields (schema 1.3-r7) ---
+    # The per-file sha256/bytes/sample_window/integral fields are optional
+    # (backward compatibility), but WHEN PRESENT they must be coherent:
+    # structural shape (pattern/enum/minimum) is the schema's job; THIS block
+    # is the cross-field semantics a single-file schema cannot express.
+    pt = r.get("power_trace") or {}
+    if pt:
+        l0r = pt.get("l0_revision")
+        for i, fe in enumerate(pt.get("files") or []):
+            tag = f"power_trace.files[{i}] ({fe.get('file', '?')})"
+            stream = fe.get("stream", "whole_run")  # absent = pre-r7 whole-run
+            if l0r == "1.3-r7" and "sha256" not in fe:
+                v.append(Violation(
+                    "4.7.1", f"{tag}: l0_revision 1.3-r7 requires every "
+                    "sidecar file to carry a sha256 digest",
+                    "the revision stamp makes presence decidable: a 1.3-r7 "
+                    "report with a digest-less file is incomplete, not old"))
+            if stream == "measure_window":
+                for key in ("sha256", "bytes", "sample_window", "integral"):
+                    if key not in fe:
+                        v.append(Violation(
+                            "4.7.2", f"{tag}: stream=measure_window files "
+                            f"must carry {key}",
+                            "the measure-window sidecar is the verification "
+                            "target that re-derives total_energy_joules; a "
+                            "partial L0 claim must not pass as a full one"))
+            sw = fe.get("sample_window")
+            if sw is not None:
+                fs, ls, n = sw.get("first_sample"), sw.get("last_sample"), fe.get("samples")
+                ok = (isinstance(fs, int) and isinstance(ls, int)
+                      and 0 <= fs <= ls)
+                if ok and isinstance(n, int) and n >= 0 and ls >= n:
+                    ok = False
+                if not ok:
+                    v.append(Violation(
+                        "4.7.4", f"{tag}: sample_window {sw!r} is incoherent "
+                        f"with samples={n!r}",
+                        "indices are 0-based data rows, both ends inclusive: "
+                        "0 <= first_sample <= last_sample < samples must hold"))
+
     return v
 
 

@@ -160,6 +160,11 @@
         "sample_rate_hz": {"type": "integer", "minimum": 10},
         "window": {"type": "string"},
         "window_note": {"type": "string"},
+        "l0_revision": {
+          "type": "string",
+          "enum": ["1.3-r7"],
+          "description": "Machine-readable production stamp for the L0 verifiability extension. Present = this report was produced by a container that computes sha256/bytes/sample_window/integral on every sidecar file, so a MISSING digest is a defect, not a pre-L0 record. Absent = pre-r7 record (digests optional and unchecked)."
+        },
         "note": {"type": "string"},
         "files": {
           "type": "array",
@@ -179,11 +184,17 @@
               "dropped_samples": {"type": "integer", "minimum": 0},
               "sha256": {
                 "type": "string",
-                "description": "sha256 of the sidecar CSV file as written on disk. Present on schema 1.3 records produced after the L0 verifiability extension; older records omit it."
+                "pattern": "^[a-f0-9]{64}$",
+                "description": "sha256 of the sidecar CSV file as written on disk. Present on schema 1.3 records produced after the L0 verifiability extension (1.3-r7); older records omit it."
               },
-              "window": {
+              "bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Size of the sidecar CSV file in bytes. A size mismatch means a truncated or padded download; a digest mismatch at equal size means a tampered file. Present on 1.3-r7+ records only."
+              },
+              "sample_window": {
                 "type": "object",
-                "description": "Indices of the measurement window [measure_start_s, measure_end_s] within this file's sample sequence, so the window can be re-cut without re-running.",
+                "description": "Indices of the measurement window within this file's sample sequence, so the window can be re-cut without re-running. Semantics (normative): indices are 0-based DATA rows — sample 0 is the first row after the CSV header, header lines are never counted; first_sample and last_sample are both inclusive; on stream=measure_window files the whole file is the window (first_sample=0, last_sample=samples-1).",
                 "required": ["first_sample", "last_sample"],
                 "properties": {
                   "first_sample": {"type": "integer", "minimum": 0},
@@ -192,12 +203,12 @@
               },
               "integral": {
                 "type": "object",
-                "description": "Trapezoidal integral of the in-window samples, recomputed from the CSV as written on disk (not from in-memory floats), so any reader holding the CSV re-derives the same number.",
+                "description": "Trapezoidal integral of the in-window samples, recomputed from the CSV as written on disk (not from in-memory floats), so any reader holding the CSV re-derives the same number. The algorithm is identified by the machine-readable rule tag (trapezoid-csv-v1: per-pair dt from the CSV timestamps, trapezoid over consecutive in-window samples, no endpoint interpolation, no left/right Riemann shortcut); the prose restatement lives in `note` and is informative, not normative.",
                 "required": ["rule", "value"],
                 "properties": {
-                  "rule": {"type": "string"},
-                  "value": {"type": "number"},
-                  "unit": {"type": "string"},
+                  "rule": {"type": "string", "enum": ["trapezoid-csv-v1"]},
+                  "value": {"type": "number", "minimum": 0},
+                  "unit": {"type": "string", "const": "joules"},
                   "note": {"type": "string"}
                 }
               },

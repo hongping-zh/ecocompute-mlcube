@@ -379,7 +379,7 @@ def test_verify_sidecar_block_recomputes_from_disk_bytes(tmp_path):
     import hashlib
     assert block["sha256"] == hashlib.sha256(p.read_bytes()).hexdigest()
     # window: the %.3f-rounded timestamps 0.123 and 0.250 bound the slice
-    assert block["window"] == {"first_sample": 1, "last_sample": 2}
+    assert block["sample_window"] == {"first_sample": 1, "last_sample": 2}
     # integral over the on-disk values (289.988, 291.333), trapezoid with dt=0.127
     # (same expression and operand order as PowerSampler.energy_joules)
     expected = (289.988 + 291.333) / 2.0 * (0.250 - 0.123)
@@ -401,8 +401,8 @@ def test_verify_sidecar_block_is_a_third_party_recomputation(tmp_path):
     ts = [float(a) for a, _ in rows]
     ws = [float(b) for _, b in rows]
     idx = [i for i, t in enumerate(ts) if phases["measure_start_s"] <= t <= phases["measure_end_s"]]
-    assert block["window"]["first_sample"] == idx[0]
-    assert block["window"]["last_sample"] == idx[-1]
+    assert block["sample_window"]["first_sample"] == idx[0]
+    assert block["sample_window"]["last_sample"] == idx[-1]
     value = sum((ws[i] + ws[i + 1]) / 2.0 * (ts[i + 1] - ts[i])
                 for i in range(idx[0], idx[-1]))
     assert block["integral"]["value"] == round(value, 6)
@@ -414,11 +414,11 @@ def test_verify_sidecar_block_edges(tmp_path):
     ecc.write_power_trace_csv(str(p), [(0.0, 71.2), (0.1, 289.9)])
     # no measurement markers -> digest only, no window/integral claims
     b = ecc.verify_sidecar_block(str(p), {})
-    assert set(b) == {"sha256"}
+    assert set(b) == {"sha256", "bytes"}
     # window holds fewer than two samples -> still no integral claim
     b = ecc.verify_sidecar_block(str(p), {"measure_start_s": 0.05,
                                           "measure_end_s": 0.06})
-    assert set(b) == {"sha256"}
+    assert set(b) == {"sha256", "bytes"}
 
 
 def test_power_trace_block_with_l0_fields_is_schema_valid(tmp_path):
@@ -429,8 +429,8 @@ def test_power_trace_block_with_l0_fields_is_schema_valid(tmp_path):
     entry = {"role": "primary", "precision": "NF4", "file": "power_trace_measure.csv",
              "stream": "measure_window", "samples": 12, "dropped_samples": 0}
     entry.update(l0)
-    assert "sha256" in entry and "window" in entry and "integral" in entry
-    assert entry["window"] == {"first_sample": 0, "last_sample": 11}
+    assert "sha256" in entry and "sample_window" in entry and "integral" in entry
+    assert entry["sample_window"] == {"first_sample": 0, "last_sample": 11}
     block = ecc.build_power_trace_block([entry], 10)
     params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
     report = ecc.build_report(params, measured=_measured(), ref=None)
@@ -457,7 +457,7 @@ def test_measure_window_sidecar_rederives_the_headline_bit_for_bit(tmp_path):
     p = tmp_path / "power_trace_measure.csv"
     ecc.write_power_trace_csv(str(p), s.samples)
     block = ecc.verify_sidecar_block(str(p), full_window=True)
-    assert block["window"] == {"first_sample": 0, "last_sample": 3}
+    assert block["sample_window"] == {"first_sample": 0, "last_sample": 3}
     assert block["integral"]["value"] == round(j, 6)
     assert "same integration that produced total_energy_joules" in block["integral"]["note"]
     # independent reader: integrate the file, no knowledge of the sampler
@@ -1183,3 +1183,67 @@ def test_read_gpu_temperature_returns_value_on_success():
     fake_pynvml.nvmlDeviceGetTemperature = lambda handle, sensor: 42
     result = ecc._read_gpu_temperature(fake_pynvml, handle=object())
     assert result == 42
+
+
+def test_tampered_or_truncated_sidecar_is_detectable(tmp_path):
+    """Flip one byte -> digest mismatch at equal size (tamper); cut bytes off
+    -> size mismatch on top (truncation). bytes+sha256 separate the two."""
+    p = tmp_path / "power_trace_measure.csv"
+    ecc.write_power_trace_csv(str(p), [(i / 10.0, 100.0 + i) for i in range(12)])
+    good = ecc.verify_sidecar_block(str(p), full_window=True)
+    raw = bytearray(p.read_bytes())
+    raw[-2] = ord("9") if raw[-2] != ord("9") else ord("8")  # one watt digit
+    p.write_bytes(bytes(raw))
+    bad = ecc.verify_sidecar_block(str(p), full_window=True)
+    assert bad["sha256"] != good["sha256"]
+    assert bad["bytes"] == good["bytes"]
+    # truncate at a line boundary (a mid-line cut is corruption, not
+    # truncation; `bytes` catches it before any parsing)
+    cut = bytes(raw[:raw[:-1].rindex(b"\n") + 1])
+    p.write_bytes(cut)
+    trunc = ecc.verify_sidecar_block(str(p), full_window=True)
+    assert trunc["bytes"] == len(cut)
+    assert trunc["sha256"] != good["sha256"]
+
+
+def test_integral_rule_is_a_versioned_tag(tmp_path):
+    """The rule is a machine-readable algorithm identifier; the prose lives
+    in note. Two implementations must not each 'reasonably' invent their own
+    reading of the integration."""
+    p = tmp_path / "power_trace_measure.csv"
+    ecc.write_power_trace_csv(str(p), [(0.0, 100.0), (0.5, 200.0)])
+    block = ecc.verify_sidecar_block(str(p), full_window=True)
+    assert block["integral"]["rule"] == "trapezoid-csv-v1"
+    note = block["integral"]["note"]
+    assert "trapezoid" in note and "no endpoint interpolation" in note
+
+
+def test_schema_rejects_malformed_l0_fields():
+    """sha256 pattern, integral.value floor, unit const and the rule enum are
+    enforced structurally: 'x' as a digest or -1 J must not validate. (Index
+    ordering and presence rules are cross-field: validator 4.7, not schema.)"""
+    import pytest
+    params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
+    report = ecc.build_report(params, measured=_measured(), ref=None)
+
+    def report_with(entry):
+        r = json.loads(json.dumps(report))
+        r["power_trace"] = ecc.build_power_trace_block([entry], 10)
+        return r
+
+    good = {"role": "primary", "precision": "NF4", "file": "power_trace_measure.csv",
+            "stream": "measure_window", "samples": 3, "dropped_samples": 0,
+            "sha256": "a" * 64, "bytes": 12,
+            "sample_window": {"first_sample": 0, "last_sample": 2},
+            "integral": {"rule": "trapezoid-csv-v1", "value": 123.4,
+                         "unit": "joules", "note": "n"}}
+    jsonschema.validate(report_with(good), SCHEMA)
+    for bad_entry in [
+        {**good, "sha256": "x"},
+        {**good, "bytes": 0},
+        {**good, "integral": {**good["integral"], "value": -1.0}},
+        {**good, "integral": {**good["integral"], "unit": "W"}},
+        {**good, "integral": {**good["integral"], "rule": "trapezoid, mostly"}},
+    ]:
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(report_with(bad_entry), SCHEMA)

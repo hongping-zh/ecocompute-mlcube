@@ -1,0 +1,117 @@
+{
+  "schema_version": "ecocompute-energy/1.3",
+  "benchmark": "ecocompute-energy-methodology",
+  "follows_mlcommons_energy_reporting_conventions": true,
+  "certified_benchmark_result": false,
+  "scenario": "SingleStream",
+  "scenario_note": "Nominal label derived from batch size (1 -> SingleStream, else Offline). This is NOT enforced by MLPerf LoadGen: the container runs its own warmup/iterations loop and does not apply LoadGen timing constraints, so results are a supplemental energy methodology, not a certified benchmark.",
+  "timestamp_utc": "2026-11-17T01:24:46.709005Z",
+  "system_under_test": {
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "gpu_arch": "ada",
+    "accelerator_count": 1,
+    "host": "Windows-11-10.0.26200-SP0"
+  },
+  "workload": {
+    "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "params_b": 1.1,
+    "precision": "NF4",
+    "batch_size": 1,
+    "decoding": "greedy",
+    "context_length": 2048
+  },
+  "measurement": {
+    "method": "NVML on-device power sampling",
+    "sample_rate_hz": 10,
+    "window": "generation",
+    "window_note": "reported energy integrates the power sampler over the generation loop only - model load, quantization and warm-up excluded (protocol v1.1 4.4); idle power is not subtracted",
+    "tokens_per_run": 512,
+    "iterations": 60,
+    "warmup": 2,
+    "iterations_note": "Decode iterations within one run, not independent trials: a single report is n=1 however high this is."
+  },
+  "thermal": {
+    "mode": "cold",
+    "basis": "unavailable",
+    "warmup_runs": 2,
+    "cooldown_s": null,
+    "temperature_start_c": null,
+    "temperature_steady_c": null,
+    "temperature_end_c": null,
+    "temperature_peak_c": null,
+    "steady_state_reached": null,
+    "note": "no on-device measurement was performed (dry run or measurement failed)"
+  },
+  "software": {
+    "python": "3.13.14",
+    "packages": {},
+    "reference_pins": {
+      "transformers": "4.57.6",
+      "bitsandbytes": "0.43.3",
+      "accelerate": "1.14.0",
+      "nvidia-ml-py": "13.610.43",
+      "sentencepiece": "0.2.2"
+    },
+    "matches_reference_pins": false,
+    "differs_from_reference_pins": [
+      "accelerate missing != 1.14.0",
+      "bitsandbytes missing != 0.43.3",
+      "nvidia-ml-py missing != 13.610.43",
+      "sentencepiece missing != 0.2.2",
+      "transformers missing != 4.57.6"
+    ],
+    "comparability_note": "This run did not use the published pins; bitsandbytes/transformers quantization kernels change between releases, so vs_fp16_energy_pct may not be directly comparable with reports produced by the image."
+  },
+  "provenance": {
+    "tool": "https://quantenergy.tech",
+    "dataset_doi": "10.5281/zenodo.19647290",
+    "rtx4090_deep_dive_doi": "10.5281/zenodo.22037483",
+    "rtx5090_deep_dive_doi": "10.5281/zenodo.22855133",
+    "paper_ssrn": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6854700",
+    "code": "https://github.com/hongping-zh/ecocompute-ai"
+  },
+  "notice": "Not a certified benchmark result. Energy reported in an MLCommons-style format. MLCOMMONS, MLPERF, and MLCUBE are trademarks of MLCommons Association, referenced here nominatively.",
+  "measurement_source": "direct-nvml",
+  "results": {
+    "total_energy_joules": 1724.855,
+    "tokens_generated": 30720,
+    "energy_per_token_mj": 56.148,
+    "avg_power_watts": 287.4,
+    "throughput_tokens_per_s": 5120.0,
+    "basis": "measured"
+  },
+  "power_trace": {
+    "format": "csv",
+    "columns": [
+      "t_s",
+      "power_w"
+    ],
+    "sample_rate_hz": 10,
+    "window": "generation",
+    "l0_revision": "1.3-r7",
+    "window_note": "reported energy = trapezoidal integral of a dedicated sampler running within [phases.measure_start_s, phases.measure_end_s] (generation only: model load, quantization and warm-up excluded; idle power not subtracted). That sampler's own samples are dumped to the stream=measure_window sidecar, which carries the sha256/bytes/sample_window/integral fields: the reported figure is re-derivable from that file bit-for-bit. The whole-run trace (stream=whole_run) spans the run from before model load, so generation-only and whole-process windows can both be re-cut from it without re-running; its integral is an independent re-cut, not the reported figure (two unsynchronized 10 Hz streams differ by sampling-phase noise)",
+    "files": [
+      {
+        "role": "primary",
+        "precision": "NF4",
+        "file": "power_trace_measure.csv",
+        "stream": "measure_window",
+        "samples": 61,
+        "dropped_samples": 0,
+        "sha256": "ac42d6ed0446dbabdbffde1738d5544c426afa5c338c8caea0665b0baa137489",
+        "bytes": 866,
+        "sample_window": {
+          "first_sample": 0,
+          "last_sample": 60
+        },
+        "integral": {
+          "rule": "trapezoid-csv-v1",
+          "value": 1724.855,
+          "unit": "joules",
+          "note": "trapezoid over the in-window samples: per-pair dt from the CSV timestamps, no endpoint interpolation, no left/right Riemann shortcut; recomputed from the sidecar CSV as written on disk, so any reader can re-derive it bit-for-bit. Sample indices are 0-based data rows (row 0 = first row after the header) and inclusive at both ends. Watts are milliwatt-quantized at capture, so the %.3f quantization floor is about \u00b10.3 W\u00b7s per 600 s window \u2014 a re-derivation matching the headline inside that floor is expected, not a bug; this is the same integration that produced total_energy_joules \u2014 round to 3 decimals to compare"
+        }
+      }
+    ],
+    "note": "ILLUSTRATIVE example pair for the L0 verifiability fields: not a real measurement."
+  }
+}

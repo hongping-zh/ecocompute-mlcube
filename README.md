@@ -129,7 +129,7 @@ Ask **Watt** — a WorkBuddy expert built on the same measured dataset this cont
 - **RTX 4090 (Ada) deep dive DOI**: `10.5281/zenodo.22037483` (three sessions; the 2026-08-19 one pairs energy with perplexity)
 - **RTX 5090 (Blackwell) deep dive DOI**: `10.5281/zenodo.22855133` (four precisions, cross-restart repeatability)
 - **Code**: https://github.com/hongping-zh/ecocompute-ai
-- **Schema lineage**: the energy-report schema was shaped through public engagement with the MLCommons community on standardizing inference energy metrics ([MLPerf Inference #2558](https://github.com/mlcommons/inference/issues/2558)) — the phase-recording (`measurement.window`) and thermal-state fields in schema 1.3 came out of that exchange
+- **Schema lineage**: the energy-report schema was shaped through public engagement with the MLCommons community on standardizing inference energy metrics ([MLPerf Inference #2558](https://github.com/mlcommons/inference/issues/2558)) — the phase-recording (`measurement.window`) and thermal-state fields in schema 1.3 came out of that exchange. Revision 1.3-r7 adds the L0 verifiability fields to power-trace sidecars (`sha256`/`bytes`/`sample_window`/`integral`): the dedicated sampler's own CSV re-derives the reported energy bit-for-bit — see [TECHNICAL.md](TECHNICAL.md) and the runnable pair in `examples/accepted-trace/` vs `examples/rejected-tampered-trace/`
 
 ---
 
