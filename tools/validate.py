@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -66,7 +67,7 @@ def check_schema(report, schema) -> str | None:
         return f"{e.message} (at {path})"
 
 
-def check_protocol_v11_core(r: dict) -> list[Violation]:
+def check_protocol_v11_core(r: dict, report_dir: Path | None = None) -> list[Violation]:
     """Every Protocol v1.1 MUST that is machine-checkable from a single report.
 
     Clause numbers refer to the normative document
@@ -76,6 +77,12 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
     arm order, iterations, ...) cannot be verified against it - it is
     schema-valid, never protocol-conformant. Honest failure states
     (steady_state_reached: false, basis: unavailable) are still valid.
+
+    report_dir: directory holding the report's sidecar CSVs. When given, the
+    L0 recompute clauses (4.7.5-4.7.8) re-derive the declared digests and
+    integrals from the files on disk; when None (dict-only callers such as
+    unit tests) they are skipped. The digest is checked over RAW BYTES -
+    no line-ending normalization, so the reader-side bit-for-bit claim holds.
     """
     v: list[Violation] = []
     sv = r.get("schema_version", "")
@@ -289,7 +296,7 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
             stream = fe.get("stream", "whole_run")  # absent = pre-r7 whole-run
             if l0r == "1.3-r7" and "sha256" not in fe:
                 v.append(Violation(
-                    "4.7.1", f"{tag}: l0_revision 1.3-r7 requires every "
+                    "7.1", f"{tag}: l0_revision 1.3-r7 requires every "
                     "sidecar file to carry a sha256 digest",
                     "the revision stamp makes presence decidable: a 1.3-r7 "
                     "report with a digest-less file is incomplete, not old"))
@@ -297,7 +304,7 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
                 for key in ("sha256", "bytes", "sample_window", "integral"):
                     if key not in fe:
                         v.append(Violation(
-                            "4.7.2", f"{tag}: stream=measure_window files "
+                            "7.2", f"{tag}: stream=measure_window files "
                             f"must carry {key}",
                             "the measure-window sidecar is the verification "
                             "target that re-derives total_energy_joules; a "
@@ -311,12 +318,148 @@ def check_protocol_v11_core(r: dict) -> list[Violation]:
                     ok = False
                 if not ok:
                     v.append(Violation(
-                        "4.7.4", f"{tag}: sample_window {sw!r} is incoherent "
+                        "7.4", f"{tag}: sample_window {sw!r} is incoherent "
                         f"with samples={n!r}",
                         "indices are 0-based data rows, both ends inclusive: "
                         "0 <= first_sample <= last_sample < samples must hold"))
 
+            # --- 4.7.5-4.7.8: L0 recompute clauses (need the sidecar on disk) ---
+            # Judgement order: digest first (4.7.5, raw bytes, no CRLF
+            # normalization), then on-disk metadata (4.7.8), then the
+            # integral re-derivation (4.7.6), then the headline link (4.7.7,
+            # which is a pure cross-field check and also runs without files).
+            declared_sha = fe.get("sha256")
+            raw = None
+            if declared_sha is not None:
+                if report_dir is None:
+                    pass  # dict-only caller: file-level checks unavailable
+                else:
+                    sidecar = report_dir / str(fe.get("file", ""))
+                    try:
+                        raw = sidecar.read_bytes()
+                    except OSError:
+                        raw = None
+                    if raw is None:
+                        v.append(Violation(
+                            "7.5", f"{tag}: declared a sha256 digest but the "
+                            f"sidecar file {fe.get('file')!r} is not found "
+                            "next to the report",
+                            "an L0 claim must ship its evidence: validate the "
+                            "report in the directory that holds its sidecar CSVs"))
+                    else:
+                        actual_sha = hashlib.sha256(raw).hexdigest()
+                        if actual_sha != declared_sha:
+                            db = fe.get("bytes")
+                            if isinstance(db, int) and len(raw) < db:
+                                kind = f"truncated: {len(raw)} bytes on disk vs {db} declared"
+                            elif isinstance(db, int) and len(raw) > db:
+                                kind = f"extended: {len(raw)} bytes on disk vs {db} declared"
+                            else:
+                                kind = "tampered: byte count matches but content differs"
+                            v.append(Violation(
+                                "7.5", f"{tag}: recomputed sha256 "
+                                f"{actual_sha[:16]}... does not match the "
+                                f"declared digest (file looks {kind})",
+                                "the sidecar changed after the report was "
+                                "generated - restore the original file or "
+                                "regenerate the report"))
+
+            rows = None
+            if raw is not None:
+                rows = _parse_trace_rows(raw)
+                if rows is None:
+                    v.append(Violation(
+                        "7.6", f"{tag}: the sidecar CSV (digest-verified) "
+                        "cannot be parsed as t_s,power_w data rows",
+                        "the declared digest covers a file that is not a "
+                        "valid power-trace CSV"))
+                else:
+                    n_declared = fe.get("samples")
+                    if isinstance(n_declared, int) and n_declared != len(rows):
+                        v.append(Violation(
+                            "7.8", f"{tag}: samples={n_declared!r} but the "
+                            f"sidecar holds {len(rows)} data rows",
+                            "the per-file metadata must describe the file the "
+                            "digest covers"))
+                    if sw is not None:
+                        fs2, ls2 = sw.get("first_sample"), sw.get("last_sample")
+                        if not (isinstance(fs2, int) and isinstance(ls2, int)
+                                and 0 <= fs2 <= ls2 < len(rows)):
+                            v.append(Violation(
+                                "7.8", f"{tag}: sample_window points outside "
+                                f"the sidecar ({len(rows)} data rows on disk)",
+                                "indices are 0-based data rows, both ends "
+                                "inclusive, and must land inside the file"))
+
+            iv = fe.get("integral")
+            if iv is not None and rows is not None and sw is not None:
+                fs2 = sw.get("first_sample", 0)
+                ls2 = sw.get("last_sample", len(rows) - 1)
+                window = rows[fs2:ls2 + 1]
+                rederived = 0.0
+                for i in range(len(window) - 1):
+                    rederived += (window[i][1] + window[i + 1][1]) / 2.0 \
+                        * (window[i + 1][0] - window[i][0])
+                declared_value = iv.get("value")
+                if not isinstance(declared_value, (int, float)) \
+                        or abs(rederived - declared_value) > 1e-6:
+                    v.append(Violation(
+                        "7.6", f"{tag}: re-integrated the in-window sidecar "
+                        f"rows to {rederived:.6f} J, but the report declares "
+                        f"{declared_value!r}",
+                        "integral.value must be the trapezoid of the in-window "
+                        "samples as written in the CSV (rule trapezoid-csv-v1), "
+                        "the same integration that produced the headline"))
+
+            if iv is not None and stream == "measure_window":
+                total = (r.get("results") or {}).get("total_energy_joules")
+                declared_value = iv.get("value")
+                if isinstance(total, (int, float)) \
+                        and isinstance(declared_value, (int, float)) \
+                        and abs(declared_value - total) > 5e-4:
+                    v.append(Violation(
+                        "7.7", f"{tag}: integral.value {declared_value!r} "
+                        f"does not round to results.total_energy_joules "
+                        f"{total!r}",
+                        "the measure-window integral IS the reported headline: "
+                        "round integral.value to 3 decimals and compare - they "
+                        "must agree to the millijoule"))
+
     return v
+
+
+def _parse_trace_rows(raw: bytes):
+    """Parse a power-trace sidecar CSV into [(t_s, power_w), ...].
+
+    CRLF-tolerant at the PARSING layer only - the digest (4.7.5) is always
+    over raw bytes, so line-ending changes are caught as tampering; this
+    tolerance only exists so a CRLF-written file whose digest covers those
+    CRLF bytes still integrates. Returns None if the file is not a parseable
+    t_s,power_w CSV (first non-empty line = header, then float pairs)."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    rows = []
+    header_seen = False
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if not header_seen:
+            cells = [c.strip() for c in line.split(",")]
+            if cells != ["t_s", "power_w"]:
+                return None
+            header_seen = True
+            continue
+        cells = [c.strip() for c in line.split(",")]
+        if len(cells) < 2:
+            return None
+        try:
+            rows.append((float(cells[0]), float(cells[1])))
+        except ValueError:
+            return None
+    return rows if header_seen else None
 
 
 def check_dataset_eligible(r: dict) -> list[Violation]:
@@ -362,14 +505,15 @@ DATASET_NOTES = [
 ]
 
 
-def validate_report(report: dict, schema: dict, profile: str) -> tuple[str, list[str], list[str]]:
+def validate_report(report: dict, schema: dict, profile: str,
+                    report_dir: Path | None = None) -> tuple[str, list[str], list[str]]:
     """Returns (verdict, violations, notes). verdict in
     {'schema-invalid', 'schema-valid', 'protocol-conformant', 'dataset-eligible'}"""
     notes: list[str] = []
     err = check_schema(report, schema)
     if err:
         return "schema-invalid", [err], notes
-    viol = check_protocol_v11_core(report)
+    viol = check_protocol_v11_core(report, report_dir)
     if viol:
         return "schema-valid", [_fmt(x) for x in viol], notes
     if profile == "v1.1-core":
@@ -403,7 +547,8 @@ def main(argv=None) -> int:
         print(f"error: cannot read input: {e}", file=sys.stderr)
         return 3
 
-    verdict, viol, notes = validate_report(report, schema, args.profile)
+    verdict, viol, notes = validate_report(
+        report, schema, args.profile, Path(args.report).resolve().parent)
 
     if args.json:
         print(json.dumps({

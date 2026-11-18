@@ -299,7 +299,7 @@ def _l0_report(entry_extra, block_extra=None):
              "stream": "measure_window", "samples": 3, "dropped_samples": 0,
              "sha256": "a" * 64, "bytes": 12,
              "sample_window": {"first_sample": 0, "last_sample": 2},
-             "integral": {"rule": "trapezoid-csv-v1", "value": 123.4,
+             "integral": {"rule": "trapezoid-csv-v1", "value": 9076.849,
                           "unit": "joules", "note": "n"}}
     entry.update(entry_extra)
     r["power_trace"]["files"] = [entry]
@@ -337,3 +337,145 @@ def test_sample_window_indices_must_be_coherent_with_samples():
     r2 = _l0_report({"sample_window": {"first_sample": 2, "last_sample": 1}})
     _, viol2, _ = validate.validate_report(r2, SCHEMA, "v1.1-core")
     assert any("4.7.4" in v for v in viol2), viol2
+
+
+# --- 4.7.5-4.7.8 L0 recompute clauses (validator re-derives from disk) ------
+
+import hashlib  # noqa: E402
+
+EXAMPLES = REPO / "examples"
+
+
+def _write_sidecar(tmp_path, rows, newline="\n"):
+    """Write a t_s,power_w CSV; returns (path, raw_bytes)."""
+    lines = ["t_s,power_w"] + [f"{t:.3f},{w:.1f}" for t, w in rows]
+    raw = ("\r\n" if newline == "\r\n" else "\n").join(lines).encode()
+    p = tmp_path / "power_trace_measure.csv"
+    p.write_bytes(raw)
+    return p, raw
+
+
+def _example_report(report_dir):
+    """The shipped accepted example, loaded and re-validated from its dir."""
+    r = json.loads((report_dir / "energy.json").read_text())
+    return r
+
+
+def _conformant_l0_report(tmp_path, rows=None, newline="\n"):
+    """A minimal conformant r7 report + on-disk sidecar built with real code.
+
+    rows default: 4 samples, trapezoid = (1.0+2.0)/2*1.0 + (2.0+1.5)/2*1.0
+    + (1.5+1.0)/2*1.0 = 1.5 + 1.75 + 1.25 = 4.5 J exactly.
+    """
+    if rows is None:
+        rows = [(0.0, 1.0), (1.0, 2.0), (2.0, 1.5), (3.0, 1.0)]
+    _, raw = _write_sidecar(tmp_path, rows, newline)
+    r = _l0_report({
+        "file": "power_trace_measure.csv",
+        "samples": len(rows),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "bytes": len(raw),
+        "sample_window": {"first_sample": 0, "last_sample": len(rows) - 1},
+        "integral": {"rule": "trapezoid-csv-v1", "value": 4.5,
+                     "unit": "joules", "note": "n"},
+    })
+    # headline must agree with the integral for a measure_window entry
+    r["results"]["total_energy_joules"] = 4.5
+    return r
+
+
+def test_validator_accepts_a_consistent_sidecar(tmp_path):
+    r = _conformant_l0_report(tmp_path)
+    verdict, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert verdict == "protocol-conformant", viol
+
+
+def test_validator_accepts_crlf_sidecar_covered_by_its_digest(tmp_path):
+    # the digest is over raw bytes (CRLF included); parsing tolerates CRLF,
+    # so a legitimately CRLF-written file must still pass both 4.7.5 and 4.7.6
+    r = _conformant_l0_report(tmp_path, newline="\r\n")
+    verdict, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert verdict == "protocol-conformant", viol
+
+
+def test_validator_flags_a_tampered_sidecar(tmp_path):
+    r = _conformant_l0_report(tmp_path)
+    p = tmp_path / "power_trace_measure.csv"
+    raw = p.read_bytes().replace(b"2.0", b"9.0")
+    p.write_bytes(raw)
+    _, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert any("4.7.5" in v and "tampered" in v for v in viol), viol
+
+
+def test_validator_flags_a_truncated_sidecar(tmp_path):
+    r = _conformant_l0_report(tmp_path)
+    p = tmp_path / "power_trace_measure.csv"
+    raw = p.read_bytes()
+    p.write_bytes(raw[:raw.rindex(b"\n")])  # cut at a line boundary
+    _, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert any("4.7.5" in v and "truncated" in v for v in viol), viol
+
+
+def test_validator_flags_a_missing_sidecar(tmp_path):
+    r = _conformant_l0_report(tmp_path)
+    (tmp_path / "power_trace_measure.csv").unlink()
+    _, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert any("4.7.5" in v and "not found" in v for v in viol), viol
+
+
+def test_validator_rederives_the_integral_from_disk(tmp_path):
+    r = _conformant_l0_report(tmp_path)
+    r["power_trace"]["files"][0]["integral"]["value"] = 4.6  # falsified
+    _, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert any("4.7.6" in v and "4.500000" in v for v in viol), viol
+
+
+def test_validator_links_the_integral_to_the_headline(tmp_path):
+    r = _conformant_l0_report(tmp_path)
+    r["results"]["total_energy_joules"] = 1724.855  # headline drifted
+    _, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert any("4.7.7" in v for v in viol), viol
+
+
+def test_validator_links_integral_to_headline_without_files_too():
+    # 4.7.7 is a pure cross-field check: it must fire even dict-only
+    r = _l0_report({"integral": {"rule": "trapezoid-csv-v1",
+                                 "value": 123.4, "unit": "joules",
+                                 "note": "n"}})
+    _, viol, _ = validate.validate_report(r, SCHEMA, "v1.1-core")
+    assert any("4.7.7" in v for v in viol), viol
+
+
+def test_validator_checks_samples_count_against_the_file(tmp_path):
+    r = _conformant_l0_report(tmp_path)
+    r["power_trace"]["files"][0]["samples"] = 99
+    _, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert any("4.7.8" in v for v in viol), viol
+
+
+def test_shipped_accepted_example_passes_the_recompute_clauses():
+    d = EXAMPLES / "accepted-trace"
+    r = json.loads((d / "energy.json").read_text())
+    # the example is deliberately illustrative (self-declared "not a real
+    # measurement"), so full conformance is not the criterion here: the L0
+    # recompute clauses (4.7.x) must all pass on the real CSV on disk
+    _, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=d)
+    assert not any("4.7." in v for v in viol), viol
+
+
+def test_shipped_tampered_example_is_caught_by_the_validator():
+    d = EXAMPLES / "rejected-tampered-trace"
+    r = json.loads((d / "energy.json").read_text())
+    verdict, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=d)
+    assert verdict != "protocol-conformant"
+    assert any("4.7.5" in v for v in viol), viol

@@ -49,7 +49,12 @@ therefore means exactly one thing: gallery archiving.
    ```
    A runnable example pair ships in `examples/accepted-trace/` (digest
    matches) and `examples/rejected-tampered-trace/` (one byte changed →
-   mismatch).
+   mismatch). **The validator does this for you now**: run
+   `tools/validate.py` in the directory holding the report and its sidecars,
+   and clauses 4.7.5–4.7.8 recompute the digest (telling truncated from
+   tampered), re-integrate the CSV, and check the integral against
+   `results.total_energy_joules` — the one-liner above remains the
+   dependency-free reader-side check.
 4. Submit at [quantenergy.tech/replications](https://quantenergy.tech/replications/#submit).
    Your `energy.json` is encoded in the URL — nothing is uploaded to a server.
 
