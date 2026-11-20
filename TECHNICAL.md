@@ -274,9 +274,9 @@ python3 entrypoint.py validate ecocompute-out/energy.json --profile v1.1-core
 - Arm order recorded as randomized/counterbalanced or a disclosed deviation (§4.6.2)
 - Conformance is defined against schema 1.2+ (§4.5.2)
 
-**Pinned artifacts:**
-- Report schema SHA-256: `501dc1f328270f0bd3221e1ec5c81d740308bdd87090b93f54758ea79b6efb04`
-- `tools/validate.py` SHA-256: `c5ca27907ffc68c91b6f28702515788210cc670e6d0330e9328788f5dd815205`
+**Pinned artifacts** (sha256 over the committed repository bytes, not a CRLF working-tree checkout; current since the 1.3-r7 validator rewrite in commit `202ffe0`):
+- Report schema SHA-256: `b1882c26d8eb34401aa3d361d6bdca35c47c994952204b1ed0d4b02d52d579f0`
+- `tools/validate.py` SHA-256: `00850544f0c94e108ec6da613eb0ccadacb65010515e71680251a5c17cbb16d8`
 
 ---
 
