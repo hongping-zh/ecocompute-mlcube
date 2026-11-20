@@ -318,6 +318,8 @@ python3 -c "import hashlib,json; r=json.load(open('examples/accepted-trace/energ
 
 A runnable accepted/rejected pair ships in [`examples/accepted-trace/`](examples/accepted-trace/) and [`examples/rejected-tampered-trace/`](examples/rejected-tampered-trace/) (one watt digit changed → digest mismatch). The whole-run trace (`stream: "whole_run"`) keeps the phase markers but deliberately carries no integral claim: it is a second, unsynchronized 10 Hz stream, so its window integral approximates the headline only up to sampling-phase noise (~2%).
 
+**Threat model, stated honestly.** These fields guard against accidental corruption and arithmetic inconsistency — a truncated download, a tampered sidecar, a headline that drifted from the trace. They do not guard against a malicious author, who can re-sign any digest after editing the CSV: a self-signed hash carries no authority. External anchoring (release artifacts → archival version DOIs → signatures) is planned as a follow-up RFC. This framing is learned from [FlashProve](https://github.com/anthropics/FlashProve), whose commit / prove / verify separation shows what a trust chain needs that self-declared fields cannot supply.
+
 With the sidecar, any reader can re-integrate the trace over a different window (e.g. whole-process including load, or decode-only) without re-running the GPU: the phase markers are the cut points. Files are plain two-column CSVs (`t_s,power_w`), one per measured run.
 
 ---
