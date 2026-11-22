@@ -14,10 +14,12 @@ platform:
   accelerator_model: "any CUDA GPU with NVML power telemetry"
 
 docker:
-  # Published by .github/workflows/publish-image.yml, so `mlcube run` pulls a
-  # prebuilt image instead of building CUDA + torch locally. build_strategy=auto
-  # still falls back to building from this Dockerfile if the pull fails.
-  image: ghcr.io/hongping-zh/ecocompute-mlcube:latest
+  # Published by .github/workflows/publish-image.yml. The `0.1.0` tag is
+  # refreshed per release (the workflow pushes it on tags, incl. schema-*),
+  # so `mlcube run` pulls a release-built image rather than whatever `latest`
+  # happens to be. build_strategy=auto still falls back to building from
+  # this Dockerfile if the pull fails.
+  image: ghcr.io/hongping-zh/ecocompute-mlcube:0.1.0
   build_context: "."
   build_file: "Dockerfile"
   build_strategy: auto
