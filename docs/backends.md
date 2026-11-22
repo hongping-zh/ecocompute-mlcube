@@ -8,6 +8,14 @@ exists in [`adapters/`](../adapters/) with a CPU reference implementation
 ([`tests/test_fake_adapter.py`](../tests/test_fake_adapter.py)). Extracting
 the Transformers path from `entrypoint.py` into that contract is the follow-up.
 
+> **Status: contract only — not a wired extension point.** Nothing in the
+> production path (`entrypoint.py`, `run.sh`, `quickstart.sh`, `mlcube.yaml`)
+> imports or loads [`adapters/`](../adapters/); the contract and the fake
+> reference adapter are exercised only by
+> [`tests/test_fake_adapter.py`](../tests/test_fake_adapter.py) in CI. Until
+> the extraction above happens, adding a backend still means editing
+> `entrypoint.py` itself.
+
 ## Follow the current measurement path
 
 All function names below are in [`entrypoint.py`](../entrypoint.py).

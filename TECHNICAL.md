@@ -375,7 +375,7 @@ The runtime currently uses Hugging Face Transformers with bitsandbytes for quant
 2. Cross-engine runs are engine-relative (never pooled with the v1.1.0 transformers curves, same standing as `context_length != 2048`)
 3. Relabelling a foreign format (e.g. GGUF Q4_K_M) as `precision: NF4/INT8` is a violation
 4. The `engine` block (schema 1.3-r6) records what generated the tokens — absent means the transformers reference stack, so every existing report stays valid unchanged
-5. A CPU reference fake adapter (`adapters/fake/`) plus contract tests — including a deliberately cheating adapter that must be caught — ship in CI with no GPU and no downloads
+5. A CPU reference fake adapter (`adapters/fake/`) plus contract tests — including a deliberately cheating adapter that must be caught — ship in CI with no GPU and no downloads; nothing in the production path loads `adapters/` yet
 
 ---
 
