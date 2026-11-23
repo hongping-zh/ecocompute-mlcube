@@ -64,3 +64,96 @@ jobs:
           jsonschema.validate(json.load(open('out/energy.json')),
                               json.load(open('schema/energy.schema.json')))
           print('schema OK')"
+
+  # The two jobs above build the image and drive the container directly with
+  # `docker run`. This job drives it the way QUICKSTART.md documents: through
+  # the real `mlcube` CLI, so the MLCube contract itself (workspace resolution,
+  # type: file / type: directory parameter mounts, /mlcube_ioN task args) is
+  # what's under test.
+  mlcube-contract:
+    name: MLCube runner path (mlcube run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # mlcube 0.0.9 pins omegaconf==2.1.0 (no wheels for Python >= 3.12) and
+      # still imports distutils (removed in 3.12) — 3.10 it is, matching the
+      # python:3.10-slim base image.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+      - run: pip install "mlcube==0.0.9" "mlcube-docker==0.0.9"
+      # The tag must equal the image named in mlcube.cpu.yaml.
+      - name: Build the image mlcube.cpu.yaml points at
+        run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu-verify .
+      - name: mlcube run (info log keeps mounts, task args and docker volumes)
+        run: |
+          mlcube run --mlcube=mlcube.cpu.yaml --platform=docker --task=energy_estimate \
+            -Pdocker.cpu_args="--user $(id -u):$(id -g)" --log-level info \
+            > mlcube-run.log 2>&1
+          cat mlcube-run.log
+      - name: Assert the mount contract from the info log
+        run: |
+          # MLCube resolves parameter defaults against <mlcube dir>/workspace,
+          # mounts parameter parent dirs as /mlcube_ioN (inputs first), and
+          # passes --parameters_file=/mlcube_io0/energy_params.yaml. A
+          # workspace/workspace path in the log means the defaults were
+          # wrongly prefixed with "workspace/" (reproduced locally,
+          # 2026-11-23: the yaml in this repo is correct).
+          grep -q -- "--parameters_file=/mlcube_io0/energy_params.yaml" mlcube-run.log
+          grep -q -- "--output_dir=/mlcube_io1" mlcube-run.log
+          grep -q -- "workspace/parameters:/mlcube_io0" mlcube-run.log
+          grep -q -- "workspace/outputs:/mlcube_io1" mlcube-run.log
+          if grep -q "workspace/workspace" mlcube-run.log; then
+            echo "::error::mount table shows doubled workspace/ path"
+            exit 1
+          fi
+      - name: Assert the report (params actually read, honesty, no quality)
+        run: |
+          python3 - <<'PY'
+          import json
+          r = json.load(open("workspace/outputs/energy.json"))
+          w = r["workload"]
+          # The parameters file must actually be mounted and read. params_b is
+          # the sentinel: when the file is missing, load_params() silently
+          # falls back to setdefault() values — and every other field's
+          # fallback happens to equal the yaml value; only params_b falls back
+          # to None (verified locally, 2026-11-23). "A report was produced"
+          # proves nothing; these values do.
+          assert w["model_name"] == "TinyLlama/TinyLlama-1.1B-Chat-v1.0", w
+          assert w["params_b"] == 1.1, w
+          assert w["precision"] == "NF4", w
+          assert r["measurement"]["iterations"] == 10, r["measurement"]
+          assert (r["thermal"]["mode"], r["thermal"]["warmup_runs"]) == ("cold", 2), r["thermal"]
+          # Honesty: no GPU on the runner, so never a fabricated measurement.
+          # (basis is "unavailable" here, not "reference": gpu_arch=auto
+          # cannot map without NVML — assert "!= measured", not a specific value.)
+          assert r["certified_benchmark_result"] is False, r
+          assert r["results"]["basis"] != "measured", r["results"]
+          assert r["measurement_source"].startswith("ecocompute-dataset"), r
+          # No quality section on the no-GPU path. The probe only runs on the
+          # measuring path (resolve_quality is called under gpu_available()),
+          # so the "quality probe disabled" stderr line never appears here —
+          # do not grep for it.
+          assert r.get("quality") is None, r.get("quality")
+          print("mlcube contract OK:", r["measurement_source"], "|", r["results"]["basis"])
+          PY
+      # Counter-proof (mount-verification steps, section 4): point the
+      # parameters_file at a nonexistent file. MLCube does not fail — it
+      # silently mkdirs an empty dir — and the container's fallbacks absorb
+      # everything except params_b. If this run leaves params_b=None, the
+      # sentinel above is proven load-bearing.
+      - name: Counter-proof — a missing parameters file must trip the sentinel
+        run: |
+          sed -i 's#default: parameters/energy_params.yaml#default: parameters/DOES_NOT_EXIST.yaml#' mlcube.cpu.yaml
+          mlcube run --mlcube=mlcube.cpu.yaml --platform=docker --task=energy_estimate \
+            -Pdocker.cpu_args="--user $(id -u):$(id -g)" \
+            > mlcube-sabotage.log 2>&1 || true
+          cat mlcube-sabotage.log
+          python3 - <<'PY'
+          import json
+          r = json.load(open("workspace/outputs/energy.json"))
+          w = r["workload"]
+          assert w["params_b"] is None, w
+          assert r["certified_benchmark_result"] is False, r
+          print("counter-proof OK: params_b is None — the sentinel is load-bearing")
+          PY
