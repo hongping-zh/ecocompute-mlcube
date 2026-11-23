@@ -37,9 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build the CPU verification image
-        run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu \
-          --build-arg ECOMPUTE_CODE_COMMIT=${{ github.sha }} \
-          --build-arg ECOMPUTE_IMAGE_REF=ecocompute/mlcube-energy:cpu .
+        run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu --build-arg ECOMPUTE_CODE_COMMIT=${{ github.sha }} --build-arg ECOMPUTE_IMAGE_REF=ecocompute/mlcube-energy:cpu .
       # No GPU on the runner, so this exercises the container contract (mounts,
       # parameters, report shape) and asserts the report is honest about it:
       # basis must not be "measured" when nothing was measured.
@@ -90,9 +88,7 @@ jobs:
       - run: pip install "mlcube==0.0.9" "mlcube-docker==0.0.9"
       # The tag must equal the image named in mlcube.cpu.yaml.
       - name: Build the image mlcube.cpu.yaml points at
-        run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu-verify \
-          --build-arg ECOMPUTE_CODE_COMMIT=${{ github.sha }} \
-          --build-arg ECOMPUTE_IMAGE_REF=ecocompute/mlcube-energy:cpu-verify .
+        run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu-verify --build-arg ECOMPUTE_CODE_COMMIT=${{ github.sha }} --build-arg ECOMPUTE_IMAGE_REF=ecocompute/mlcube-energy:cpu-verify .
       - name: mlcube run (info log keeps mounts, task args and docker volumes)
         run: |
           set +e
