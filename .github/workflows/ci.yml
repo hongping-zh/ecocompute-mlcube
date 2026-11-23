@@ -92,8 +92,12 @@ jobs:
       - name: mlcube run (info log keeps mounts, task args and docker volumes)
         run: |
           set +e
-          mlcube run --mlcube=mlcube.cpu.yaml --platform=docker --task=energy_estimate \
-            -Pdocker.cpu_args="--user $(id -u):$(id -g)" --log-level info \
+          # --log-level is a group-level option: it must sit between `mlcube`
+          # and `run`. After the subcommand, click passes it through as an
+          # unknown option and mlcube 0.0.9's parse_extra_arg raises IndexError
+          # on the '='-less token (found on this job's second run, 2026-11-23).
+          mlcube --log-level info run --mlcube=mlcube.cpu.yaml --platform=docker \
+            --task=energy_estimate -Pdocker.cpu_args="--user $(id -u):$(id -g)" \
             > mlcube-run.log 2>&1
           rc=$?
           set -e
