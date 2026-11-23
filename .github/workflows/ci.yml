@@ -81,6 +81,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.10"
+      # omegaconf 2.1.0 (pinned by mlcube 0.0.9) ships invalid metadata
+      # ("PyYAML (>=5.1.*)"); pip >= 24.1 rejects it outright (found on the
+      # first run of this job, 2026-11-23). Same fix as QUICKSTART.md.
+      - run: python -m pip install "pip<24.1"
       - run: pip install "mlcube==0.0.9" "mlcube-docker==0.0.9"
       # The tag must equal the image named in mlcube.cpu.yaml.
       - name: Build the image mlcube.cpu.yaml points at

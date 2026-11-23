@@ -79,6 +79,7 @@ docker run --rm --gpus all --user "$(id -u):$(id -g)" \
 ### Method 3: MLCube CLI
 
 ```bash
+pip install "pip<24.1"  # mlcube 0.0.9 pins omegaconf==2.1.0, whose metadata pip>=24.1 rejects
 pip install "mlcube==0.0.9" "mlcube-docker==0.0.9"
 mlcube run --mlcube=. --task=energy_estimate --platform=docker
 ```
@@ -243,6 +244,7 @@ python3 entrypoint.py energy_estimate --dry_run \
 cat workspace/outputs/energy.json
 
 # 2. Or via the official MLCube CLI + Docker (no GPU)
+pip install "pip<24.1"  # required by mlcube 0.0.9's pinned omegaconf==2.1.0
 pip install "mlcube==0.0.9" "mlcube-docker==0.0.9"
 mlcube run --mlcube=mlcube.cpu.yaml --task=energy_estimate --platform=docker
 
