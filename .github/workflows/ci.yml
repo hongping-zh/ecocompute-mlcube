@@ -91,10 +91,14 @@ jobs:
         run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu-verify .
       - name: mlcube run (info log keeps mounts, task args and docker volumes)
         run: |
+          set +e
           mlcube run --mlcube=mlcube.cpu.yaml --platform=docker --task=energy_estimate \
             -Pdocker.cpu_args="--user $(id -u):$(id -g)" --log-level info \
             > mlcube-run.log 2>&1
+          rc=$?
+          set -e
           cat mlcube-run.log
+          exit $rc
       - name: Assert the mount contract from the info log
         run: |
           # MLCube resolves parameter defaults against <mlcube dir>/workspace,
