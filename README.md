@@ -79,7 +79,7 @@ Two things change in `energy.json`: `scenario` becomes `Offline`, and the report
 Most "green AI" claims rest on throughput or memory savings, not energy. A quantization that halves joules but wrecks model quality isn't a win — but without measuring both, you can't tell.
 
 ### What we found
-- **NF4 crossover is hardware-dependent**: saves energy at 7B on Ada, costs energy at 3B on Blackwell (with bitsandbytes 0.45). The break-even point moved from ~5B to 1.1–1.5B after a library update (bitsandbytes 0.50.2) — **even the version number matters**.
+- **NF4 crossover is hardware-dependent**: saves energy at 7B on Ada, costs energy at 3B on Blackwell (with bitsandbytes 0.45). The break-even point moved from ≈4.8B to ≈1.8B after a library update (bitsandbytes 0.50.2) — **even the version number matters**.
 - **INT8 often costs energy**: +55% to +256% on consumer GPUs, with negligible perplexity damage. The problem is speed, not accuracy.
 - **FP8 is two different failures**: weight-only degrades with size (+187% to +816%), dynamic-activation degrades the other way (+323% to +83%). Saying "FP8 energy" without naming the code path is meaningless.
 
