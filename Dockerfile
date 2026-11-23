@@ -2,6 +2,11 @@
 # Stage 1 (builder) installs pinned deps into an isolated venv so the runtime
 # image is reproducible and lean; Stage 2 copies only that venv.
 ARG CUDA_IMAGE=nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+# Build-time identity carried into the runtime stage and read by
+# entrypoint.py for the report provenance block (the registry tag is
+# a moving label; these fields are what a report can be traced by).
+ARG ECOMPUTE_CODE_COMMIT=unavailable
+ARG ECOMPUTE_IMAGE_REF=unavailable
 
 # ---------------------------------------------------------------- builder --
 FROM ${CUDA_IMAGE} AS builder
@@ -18,6 +23,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # ---------------------------------------------------------------- runtime --
 FROM ${CUDA_IMAGE} AS runtime
+# Re-declare to receive the global ARG values into this stage.
+ARG ECOMPUTE_CODE_COMMIT=unavailable
+ARG ECOMPUTE_IMAGE_REF=unavailable
+ENV ECOMPUTE_CODE_COMMIT=${ECOMPUTE_CODE_COMMIT} \
+    ECOMPUTE_IMAGE_REF=${ECOMPUTE_IMAGE_REF}
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:${PATH}" \

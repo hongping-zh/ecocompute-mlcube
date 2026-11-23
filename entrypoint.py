@@ -1151,6 +1151,14 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None,
             "rtx5090_deep_dive_doi": "10.5281/zenodo.22855133",
             "paper_ssrn": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6854700",
             "code": "https://github.com/hongping-zh/ecocompute-ai",
+            # Container identity, injected at image build time (Dockerfile
+            # ARG -> ENV). The registry tag is a moving label: `0.1.0` is
+            # re-pushed on every release, so a bare tag cannot identify the
+            # code a report was produced by. These two fields can.
+            # A bare local run (no Docker build) has no identity to vouch
+            # for and must say so honestly rather than pretending.
+            "code_commit": os.environ.get("ECOMPUTE_CODE_COMMIT", "unavailable"),
+            "image": os.environ.get("ECOMPUTE_IMAGE_REF", "unavailable"),
         },
         "notice": (
             "Not a certified benchmark result. Energy reported in an MLCommons-style "

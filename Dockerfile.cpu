@@ -6,6 +6,13 @@
 # report (never a fabricated measurement). Use Dockerfile for real on-GPU runs.
 FROM python:3.10-slim
 
+# Build-time identity -> report provenance (CI passes the real commit;
+# a bare local build records "unavailable" in the report, honestly).
+ARG ECOMPUTE_CODE_COMMIT=unavailable
+ARG ECOMPUTE_IMAGE_REF=unavailable
+ENV ECOMPUTE_CODE_COMMIT=${ECOMPUTE_CODE_COMMIT} \
+    ECOMPUTE_IMAGE_REF=${ECOMPUTE_IMAGE_REF}
+
 ENV PYTHONUNBUFFERED=1
 RUN pip install --no-cache-dir "pyyaml>=6.0.1"
 

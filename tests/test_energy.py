@@ -676,6 +676,19 @@ def test_report_records_the_versions_it_ran_on(tmp_path):
     assert "matches_reference_pins" not in sw
 
 
+def test_provenance_records_container_identity_or_says_unavailable(tmp_path):
+    report = run_cli(tmp_path, "--gpu_arch", "ada", "--params_b", "1.1",
+                     "--precision", "NF4")
+    jsonschema.validate(report, SCHEMA)
+    # The registry tag is a moving label (0.1.0 is re-pushed on every
+    # release), so provenance carries build-time identity instead. A bare
+    # local run has no container identity to vouch for and must say so
+    # honestly rather than pretending.
+    pv = report["provenance"]
+    assert pv["code_commit"] == "unavailable"
+    assert pv["image"] == "unavailable"
+
+
 def test_measured_report_states_whether_it_used_the_pins():
     params = ecc.load_params(_ns(gpu_arch="ada", params_b=1.1, precision="NF4"))
     measured = {"total_energy_joules": 100.0, "tokens_generated": 2560,

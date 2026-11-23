@@ -37,7 +37,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build the CPU verification image
-        run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu .
+        run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu \
+          --build-arg ECOMPUTE_CODE_COMMIT=${{ github.sha }} \
+          --build-arg ECOMPUTE_IMAGE_REF=ecocompute/mlcube-energy:cpu .
       # No GPU on the runner, so this exercises the container contract (mounts,
       # parameters, report shape) and asserts the report is honest about it:
       # basis must not be "measured" when nothing was measured.
@@ -88,7 +90,9 @@ jobs:
       - run: pip install "mlcube==0.0.9" "mlcube-docker==0.0.9"
       # The tag must equal the image named in mlcube.cpu.yaml.
       - name: Build the image mlcube.cpu.yaml points at
-        run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu-verify .
+        run: docker build -f Dockerfile.cpu -t ecocompute/mlcube-energy:cpu-verify \
+          --build-arg ECOMPUTE_CODE_COMMIT=${{ github.sha }} \
+          --build-arg ECOMPUTE_IMAGE_REF=ecocompute/mlcube-energy:cpu-verify .
       - name: mlcube run (info log keeps mounts, task args and docker volumes)
         run: |
           set +e
@@ -142,6 +146,12 @@ jobs:
           assert r["certified_benchmark_result"] is False, r
           assert r["results"]["basis"] != "measured", r["results"]
           assert r["measurement_source"].startswith("ecocompute-dataset"), r
+          # Container identity: the image was built in THIS job from THIS
+          # commit, so the report must trace back to exactly that. The
+          # registry tag is a moving label (0.1.0 re-pushed per release);
+          # code_commit is what an archived report is traced by.
+          assert r["provenance"]["code_commit"] == "${{ github.sha }}", r["provenance"]
+          assert r["provenance"]["image"] == "ecocompute/mlcube-energy:cpu-verify", r["provenance"]
           # No quality section on the no-GPU path. The probe only runs on the
           # measuring path (resolve_quality is called under gpu_available()),
           # so the "quality probe disabled" stderr line never appears here —
