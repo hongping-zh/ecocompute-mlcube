@@ -222,7 +222,13 @@
         }
       }
     },
-    "provenance": {"type": "object"},
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "code_commit": {"type": "string", "minLength": 1},
+        "image": {"type": "string", "minLength": 1}
+      }
+    },
     "trademark_notice": {"type": "string"}
   },
   "allOf": [

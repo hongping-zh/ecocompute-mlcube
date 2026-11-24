@@ -472,6 +472,30 @@ def test_shipped_accepted_example_passes_the_recompute_clauses():
     assert not any("4.7." in v for v in viol), viol
 
 
+def test_provenance_identity_is_shape_checked_not_truth_checked():
+    """Clause 5.4: provenance.code_commit/image are traceability, not
+    endorsement. The validator checks the shape (a non-empty string) and
+    deliberately never the truth — anyone can rebuild an image with a
+    forged commit string, and that must pass."""
+    report = json.loads((EXAMPLES / "energy.no-gpu.json").read_text())
+    # forged but well-shaped: must NOT trip 5.4
+    report["provenance"]["code_commit"] = "0" * 40
+    _, viol, _ = validate.validate_report(report, SCHEMA, "v1.1-core")
+    assert not any("§4.5.4]" in v for v in viol), viol
+    # whitespace-only passes the schema minLength but not 5.4
+    report["provenance"]["code_commit"] = "   "
+    _, viol, _ = validate.validate_report(report, SCHEMA, "v1.1-core")
+    assert any("§4.5.4]" in v for v in viol), viol
+    # a non-string is stopped at the schema layer first
+    report["provenance"]["code_commit"] = {"nested": True}
+    verdict, viol, _ = validate.validate_report(report, SCHEMA, "v1.1-core")
+    assert verdict == "schema-invalid", viol
+    # absent block entirely is fine (r5-era reports predate it)
+    del report["provenance"]
+    _, viol, _ = validate.validate_report(report, SCHEMA, "v1.1-core")
+    assert not any("§4.5.4]" in v for v in viol), viol
+
+
 def test_shipped_tampered_example_is_caught_by_the_validator():
     d = EXAMPLES / "rejected-tampered-trace"
     r = json.loads((d / "energy.json").read_text())

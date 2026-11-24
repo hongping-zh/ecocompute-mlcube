@@ -226,13 +226,24 @@ def check_protocol_v11_core(r: dict, report_dir: Path | None = None) -> list[Vio
             "a run on a different stack is real but MUST be flagged as not "
             "directly comparable"))
 
+    # --- 5.4 provenance container identity: shape only (traceability,
+    # not endorsement: the value is stamped by whoever ran the build) ---
+    prov = r.get("provenance") or {}
+    if prov:
+        for key in ("code_commit", "image"):
+            val = prov.get(key)
+            if val is not None and (not isinstance(val, str) or not val.strip()):
+                v.append(Violation(
+                    "5.4", f"provenance.{key} must be a non-empty string",
+                    "container identity is recorded at image build time; the "
+                    "validator checks the shape, not the truth of the value"))
+
     # --- 4.6 Thermal state ---
     if th is None:
         v.append(Violation(
             "6.1", "thermal block missing",
             "the report MUST record the thermal block (warm-up count, "
-            "temperatures at start/steady/end/peak); the container does not "
-            "yet emit it - tracked issue"))
+            "temperatures at start/steady/end/peak)"))
     else:
         if th.get("mode") not in ("cold", "steady"):
             v.append(Violation("6.3", f"thermal.mode is {th.get('mode')!r}, "

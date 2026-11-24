@@ -1,6 +1,6 @@
 # Technical Documentation
 
-Deep dive into the EcoCompute energy methodology: JSON schema, validation, protocol conformance, reproducible builds, and backend extension.
+Deep dive into the EcoCompute energy methodology: JSON schema, validation, protocol conformance, reproducible builds, and backend extension (interface status in docs/backends.md).
 
 ---
 
@@ -274,9 +274,11 @@ python3 entrypoint.py validate ecocompute-out/energy.json --profile v1.1-core
 - Arm order recorded as randomized/counterbalanced or a disclosed deviation (§4.6.2)
 - Conformance is defined against schema 1.2+ (§4.5.2)
 
-**Pinned artifacts** (sha256 over the committed repository bytes, not a CRLF working-tree checkout; current since the 1.3-r7 validator rewrite in commit `202ffe0`):
-- Report schema SHA-256: `b1882c26d8eb34401aa3d361d6bdca35c47c994952204b1ed0d4b02d52d579f0`
-- `tools/validate.py` SHA-256: `00850544f0c94e108ec6da613eb0ccadacb65010515e71680251a5c17cbb16d8`
+**Provenance container identity (optional).** `provenance.code_commit` and `provenance.image` record the commit and image reference the producing container was built from, injected as Docker build args (`ECOMPUTE_CODE_COMMIT` / `ECOMPUTE_IMAGE_REF` → ENV, read by the entrypoint). A bare local run records `"unavailable"` honestly. These fields are **traceability, not endorsement**: whoever runs the build stamps the values, anyone can rebuild an image with arbitrary strings, and the validator (clause 5.4) checks only their shape — a non-empty string, never the truth. Schema-wise they are optional typed properties of the provenance object.
+
+**Pinned artifacts** (sha256 over the committed repository bytes, not a CRLF working-tree checkout; current since the 1.3-r7 validator rewrite in commit `202ffe0`; both hashes are for `main` — the latest published release, schema-1.3-r5 (2026-11-05), predates the rewrite and pins its own r5 hashes):
+- Report schema SHA-256: `830d4381e2647dd709f2cfabed7d96bd3c9d60e903689a2b2ec5662c28d6ecbf`
+- `tools/validate.py` SHA-256: `d4ec5a33112034314451c84937ded2e805431548c599b2a57dc28a22e21ebc16`
 
 ---
 
@@ -318,7 +320,7 @@ python3 -c "import hashlib,json; r=json.load(open('examples/accepted-trace/energ
 
 A runnable accepted/rejected pair ships in [`examples/accepted-trace/`](examples/accepted-trace/) and [`examples/rejected-tampered-trace/`](examples/rejected-tampered-trace/) (one watt digit changed → digest mismatch). The whole-run trace (`stream: "whole_run"`) keeps the phase markers but deliberately carries no integral claim: it is a second, unsynchronized 10 Hz stream, so its window integral approximates the headline only up to sampling-phase noise (~2%).
 
-**Threat model, stated honestly.** These fields guard against accidental corruption and arithmetic inconsistency — a truncated download, a tampered sidecar, a headline that drifted from the trace. They do not guard against a malicious author, who can re-sign any digest after editing the CSV: a self-signed hash carries no authority. External anchoring (release artifacts → archival version DOIs → signatures) is planned as a follow-up RFC. This framing is learned from [FlashProve](https://github.com/anthropics/FlashProve), whose commit / prove / verify separation shows what a trust chain needs that self-declared fields cannot supply.
+**Threat model, stated honestly.** These fields guard against accidental corruption and arithmetic inconsistency — a truncated download, a tampered sidecar, a headline that drifted from the trace. They do not guard against a malicious author, who can re-sign any digest after editing the CSV: a self-signed hash carries no authority. External anchoring (release artifacts → archival version DOIs → signatures) is planned as a follow-up RFC. The container identity fields below are traceability, not anchoring: they say which commit produced a report, not that anyone trustworthy vouches for it. This framing is learned from [FlashProve](https://github.com/anthropics/FlashProve), whose commit / prove / verify separation shows what a trust chain needs that self-declared fields cannot supply.
 
 **Certificates, not proofs.** The useful reading of the sidecar is *proof-carrying data*: `energy.json` plus its trace is a certificate produced by an untrusted party, and `tools/validate.py` is a small checker that trusts nothing the producer asserts. That is the same shape as a proof-assistant kernel — don't trust the producer, check the artifact — and it is where formal-methods thinking earns its keep in this project. Three honest consequences:
 
@@ -377,7 +379,7 @@ The runtime currently uses Hugging Face Transformers with bitsandbytes for quant
 - Validation requirements for adding engines such as llama.cpp, vLLM or TensorRT-LLM
 
 **Backend acceptance checklist (A1–A5):**
-1. Real token counts are an acceptance condition, enforced by a runner-authoritative re-tokenization cross-check, not a promise
+1. Real token counts are an acceptance condition, enforced by a runner-authoritative re-tokenization cross-check (implemented in `adapters/verify.py`; today only the CI fake engine is wired through it), not a promise
 2. Cross-engine runs are engine-relative (never pooled with the v1.1.0 transformers curves, same standing as `context_length != 2048`)
 3. Relabelling a foreign format (e.g. GGUF Q4_K_M) as `precision: NF4/INT8` is a violation
 4. The `engine` block (schema 1.3-r6) records what generated the tokens — absent means the transformers reference stack, so every existing report stays valid unchanged
@@ -398,7 +400,7 @@ The suite runs the `energy_estimate` task through its real CLI and asserts that:
 - `batch_size` selects the scenario
 - The no-GPU path never labels a result as `measured`
 
-CI (`.github/workflows/mlcube-verify.yml`) runs these tests plus a full `Dockerfile.cpu` build + container run + schema check on every push/PR.
+CI (`.github/workflows/ci.yml`) runs these tests plus a full `Dockerfile.cpu` build + container run + schema check on every push/PR.
 
 ---
 

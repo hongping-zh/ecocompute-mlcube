@@ -53,6 +53,12 @@ jobs:
           context: .
           file: Dockerfile
           push: true
+          # Stamp the image with the commit it was built from; the
+          # entrypoint records both in every report's provenance
+          # block (traceability, not endorsement - TECHNICAL.md).
+          build-args: |
+            ECOMPUTE_CODE_COMMIT=${{ github.sha }}
+            ECOMPUTE_IMAGE_REF=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ startsWith(github.ref, 'refs/tags/') && '0.1.0' || 'latest' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -63,11 +69,16 @@ jobs:
           mkdir -p out
           # --user: the image's default user is unprivileged (uid 1000); write to
           # the bind mount as the runner's own uid, like quickstart.sh does.
+          # Smoke-test the image THIS run pushed: the :sha-<short> tag is
+          # unique to this commit; :latest can be stale on tag-push runs.
+          IMG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$(git rev-parse --short HEAD)"
           docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/out:/workspace/outputs" \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest energy_estimate \
+            "$IMG" energy_estimate \
             --dry_run --gpu_arch ada --params_b 1.1 --output_dir /workspace/outputs
           python3 -c "
           import json
           r = json.load(open('out/energy.json'))
           assert r['results']['basis'] != 'measured', r
+          assert r['provenance']['code_commit'] == '${{ github.sha }}', r['provenance']
+          assert str(r['provenance']['image']).startswith('ghcr.io/'), r['provenance']
           print('image OK:', r['results'])"

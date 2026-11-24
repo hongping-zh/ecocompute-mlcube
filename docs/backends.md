@@ -101,6 +101,11 @@ tokenizer and cross-checks the counts
 structurally, not on trust, so an adapter that miscounts is caught even if
 the mistake is accidental.
 
+*Wiring status: implemented in `adapters/verify.py`; the only engine
+wired through it today is the CI fake engine. The transformers
+reference path needs no cross-check — it is the canonical
+tokenizer its counts are measured by.*
+
 Minimal acceptance checklist for a new backend PR:
 
 | # | Acceptance | Judged by |

@@ -48,6 +48,10 @@ Download the script from an immutable release, verify checksum, then run:
 curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r5/quickstart.sh
 curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r5/SHA256SUMS
 
+# Note: the published release is r5 (2026-11-05); the r7 L0 recompute
+# fields and pinned validator hashes (TECHNICAL.md) are on main and
+# ship with r6.
+
 # Verify
 sha256sum -c SHA256SUMS
 
@@ -402,6 +406,6 @@ Your run used different package versions than the published pins (common on rent
 ## Next steps
 
 - **[TECHNICAL.md](TECHNICAL.md)** — JSON schema, validation, protocol conformance, reproducible builds
-- **[docs/backends.md](docs/backends.md)** — How to add llama.cpp, vLLM, or TensorRT-LLM as inference engines
+- **[docs/backends.md](docs/backends.md)** — How to add llama.cpp, vLLM, or TensorRT-LLM as inference engines (interface defined; only the CI fake engine is wired today)
 - **[quantenergy.tech](https://quantenergy.tech)** — Interactive crossover curves and estimator API
 - **[Ask Watt](https://quantenergy.tech/watt/)** — Get a decision, not a measurement

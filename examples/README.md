@@ -7,6 +7,12 @@ Both files validate against [`../schema/energy.schema.json`](../schema/energy.sc
 | [`energy.no-gpu.json`](energy.no-gpu.json) | real output of `entrypoint.py energy_estimate --dry_run` on a host **without** a GPU | `ecocompute-dataset (no local GPU)` | `interpolated` |
 | [`energy.measured.illustrative.json`](energy.measured.illustrative.json) | **hand-written illustrative sample** of the on-GPU measured shape | `ILLUSTRATIVE (synthetic) …` | `measured` |
 
+> All four example reports carry `"code_commit": "unavailable"` and
+> `"image": "unavailable"` in their provenance block: they came from
+> bare local runs (or are hand-written), not docker-built images. A
+> container-built report records the commit and image reference it was
+> built from — traceability, not endorsement (TECHNICAL.md).
+
 Reproduce the no-GPU example:
 
 ```bash

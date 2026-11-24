@@ -31,7 +31,7 @@ body:
     id: validator
     attributes:
       label: Validator output (verbatim)
-      description: Run tools/validate.py on your energy.json and paste the verdict line and any protocol readout exactly as printed — schema-valid is the expected verdict today. Do not edit the output.
+      description: Run tools/validate.py on your energy.json and paste the verdict line and any protocol readout exactly as printed — paste failures too, unedited; the reviewer recomputes the sidecar fields against the reference implementation (lockstep), so a clean verdict alone is not the acceptance criterion.
       render: shell
     validations:
       required: true

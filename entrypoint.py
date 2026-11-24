@@ -1158,6 +1158,9 @@ def build_report(p, measured, ref, fp16_measured=None, measure_error=None,
             # ARG -> ENV). The registry tag is a moving label: `0.1.0` is
             # re-pushed on every release, so a bare tag cannot identify the
             # code a report was produced by. These two fields can.
+            # Traceability, not endorsement: whoever runs the build stamps
+            # these values, so anyone can rebuild an image with arbitrary
+            # strings; external anchoring is the follow-up RFC (TECHNICAL.md).
             # A bare local run (no Docker build) has no identity to vouch
             # for and must say so honestly rather than pretending.
             "code_commit": os.environ.get("ECOMPUTE_CODE_COMMIT", "unavailable"),
