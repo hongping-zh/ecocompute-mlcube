@@ -56,7 +56,7 @@ artifacts, not just of `main`.
   engine is wired); the SBOM sentence matches what shipped; the data-submission
   issue template no longer claims "schema-valid is the expected verdict".
 - **Exit codes de-collided.** argparse usage errors exit 64 (EX_USAGE) —
-  argparse's default 2 collided with the documented schema-invalid exit 2.
+  argparse's default 2 collided with the documented schema-invalid exit 2. The change re-pinned validate.py within a day of 843366d's re-pin (d4ec5a33 → d46349b5); commit messages are point-in-time records — the authoritative pins live in TECHNICAL.md and on the release page.
 - **SBOM returns.** After r4/r5 shipped without one (r3 was the last), this
   release again carries `sbom.cdx.json` (CycloneDX, generated from the
   pinned `requirements.lock.txt`), alongside `SHA256SUMS` and
