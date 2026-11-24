@@ -40,12 +40,8 @@ Every report the CLI emits is machine-checked against Protocol v1.1 (`tools/vali
 
 ```bash
 # 1. Download the script from an immutable release
-curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r5/quickstart.sh
-curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r5/SHA256SUMS
-
-# Note: the published release is r5 (2026-11-05). The r7 L0 recompute
-# fields and pinned validator hashes (TECHNICAL.md) are on main and
-# ship with the r6 release.
+curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r6/quickstart.sh
+curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r6/SHA256SUMS
 
 # 2. Verify checksum
 sha256sum -c SHA256SUMS
@@ -57,7 +53,7 @@ bash quickstart.sh
 **What you get:**
 - `ecocompute-out/energy.json` — your measurement (NVML energy, throughput, perplexity)
 - A link to overlay your point on the published crossover curve at [quantenergy.tech](https://quantenergy.tech/?tab=run)
-- Supply-chain guarantees: checksummed script, non-root container; SBOM release asset (r3 shipped one, r4/r5 did not — regenerate per release, see CONTRIBUTING)
+- Supply-chain guarantees: checksummed script, non-root container; SBOM release asset (r3 and r6 ship one; r4/r5 did not — regenerate per release, see CONTRIBUTING)
 
 **Time:** ~57 minutes first run (downloads), ~2 minutes repeat runs (all cached).
 
@@ -128,12 +124,12 @@ Ask **Watt** — a WorkBuddy expert built on the same measured dataset this cont
 
 - **Tool**: https://quantenergy.tech
 - **Paper** (SSRN #6854700): *Weight-Only Quantization Does Not Always Save Energy…* (preprint)
-- **Container (this repo) software DOI**: `10.5281/zenodo.23974826` (release `schema-1.3-r5`; concept DOI `10.5281/zenodo.23974825` always resolves to the latest version)
+- **Container (this repo) software DOI**: `10.5281/zenodo.23974826` (release `schema-1.3-r6`; concept DOI `10.5281/zenodo.23974825` always resolves to the latest version)
 - **Main dataset DOI**: `10.5281/zenodo.19647290` (source of no-GPU reference values)
 - **RTX 4090 (Ada) deep dive DOI**: `10.5281/zenodo.22037483` (three sessions; the 2026-08-19 one pairs energy with perplexity)
 - **RTX 5090 (Blackwell) deep dive DOI**: `10.5281/zenodo.22855133` (four precisions, cross-restart repeatability)
 - **Code**: https://github.com/hongping-zh/ecocompute-ai
-- **Schema lineage**: the energy-report schema was shaped through public engagement with the MLCommons community on standardizing inference energy metrics ([MLPerf Inference #2558](https://github.com/mlcommons/inference/issues/2558)) — the phase-recording (`measurement.window`) and thermal-state fields in schema 1.3 came out of that exchange. Revision 1.3-r7 adds the L0 verifiability fields to power-trace sidecars (`sha256`/`bytes`/`sample_window`/`integral`): the dedicated sampler's own CSV re-derives the reported energy bit-for-bit — see [TECHNICAL.md](TECHNICAL.md) and the runnable pair in `examples/accepted-trace/` vs `examples/rejected-tampered-trace/` *(r7 fields and pinned hashes are on `main`; the r5 downloadable release predates them until r6)*
+- **Schema lineage**: the energy-report schema was shaped through public engagement with the MLCommons community on standardizing inference energy metrics ([MLPerf Inference #2558](https://github.com/mlcommons/inference/issues/2558)) — the phase-recording (`measurement.window`) and thermal-state fields in schema 1.3 came out of that exchange. Revision 1.3-r7 adds the L0 verifiability fields to power-trace sidecars (`sha256`/`bytes`/`sample_window`/`integral`): the dedicated sampler's own CSV re-derives the reported energy bit-for-bit — see [TECHNICAL.md](TECHNICAL.md) and the runnable pair in `examples/accepted-trace/` vs `examples/rejected-tampered-trace/`
 
 ---
 

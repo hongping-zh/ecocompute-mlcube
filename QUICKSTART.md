@@ -45,12 +45,8 @@ Download the script from an immutable release, verify checksum, then run:
 
 ```bash
 # Download
-curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r5/quickstart.sh
-curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r5/SHA256SUMS
-
-# Note: the published release is r5 (2026-11-05); the r7 L0 recompute
-# fields and pinned validator hashes (TECHNICAL.md) are on main and
-# ship with r6.
+curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r6/quickstart.sh
+curl -fsSLO https://github.com/hongping-zh/ecocompute-mlcube/releases/download/schema-1.3-r6/SHA256SUMS
 
 # Verify
 sha256sum -c SHA256SUMS

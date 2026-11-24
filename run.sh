@@ -16,9 +16,7 @@
 # Run with --dry-run to see what would happen without executing anything.
 set -euo pipefail
 
-# r5 is the latest published release; the r7 validator/L0 fields are
-# on main until the r6 release ships.
-RELEASE="schema-1.3-r5"
+RELEASE="schema-1.3-r6"
 BASE_URL="https://github.com/hongping-zh/ecocompute-mlcube/releases/download/${RELEASE}"
 
 # ----------------------------------------------------------------- defaults --

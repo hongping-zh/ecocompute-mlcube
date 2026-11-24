@@ -503,3 +503,17 @@ def test_shipped_tampered_example_is_caught_by_the_validator():
         r, SCHEMA, "v1.1-core", report_dir=d)
     assert verdict != "protocol-conformant"
     assert any("4.7.5" in v for v in viol), viol
+
+
+def test_usage_errors_exit_64_not_colliding_with_schema_invalid_2():
+    """argparse's default usage exit is 2 - the same code the CLI documents
+    for schema-invalid. A wrapper consuming the exit code could not tell bad
+    CLI usage from a broken report. Usage errors must exit 64 (EX_USAGE)."""
+    import subprocess
+
+    for argv in ([], ["--nonexistent-flag"]):
+        r = subprocess.run(
+            [sys.executable, str(REPO / "tools" / "validate.py")] + argv,
+            capture_output=True, text=True, timeout=60)
+        assert r.returncode == 64, (argv, r.returncode, r.stderr)
+        assert "usage:" in r.stderr.lower()

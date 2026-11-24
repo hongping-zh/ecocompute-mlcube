@@ -16,7 +16,9 @@ Three verdicts, deliberately distinct:
                         review are dataset-level and flagged as such
 
 Exit codes: 0 conformant/eligible, 1 schema-valid but violations,
-2 schema-invalid, 3 usage error.
+2 schema-invalid, 3 cannot read/parse input, 64 usage error
+(EX_USAGE). argparse's default usage exit is 2, which would collide
+with schema-invalid; usage errors are rerouted to 64.
 
 Usage:
   python tools/validate.py report.json
@@ -537,8 +539,21 @@ def validate_report(report: dict, schema: dict, profile: str,
     return "dataset-eligible", [], notes
 
 
+class _UsageParser(argparse.ArgumentParser):
+    """Usage errors exit 64 (EX_USAGE), not argparse's default 2.
+
+    Exit 2 is documented as schema-invalid; a wrapper consuming the exit
+    code could not tell bad CLI usage from a schema-invalid report.
+    """
+
+    def error(self, message):  # pragma: no cover - exercised via subprocess
+        self.print_usage(sys.stderr)
+        print("error: %s" % message, file=sys.stderr)
+        sys.exit(64)
+
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(
+    ap = _UsageParser(
         prog="ecocompute validate",
         description="EcoCompute report validator: schema-valid is not protocol-conformant")
     ap.add_argument("report", help="path to an energy.json report")

@@ -276,9 +276,9 @@ python3 entrypoint.py validate ecocompute-out/energy.json --profile v1.1-core
 
 **Provenance container identity (optional).** `provenance.code_commit` and `provenance.image` record the commit and image reference the producing container was built from, injected as Docker build args (`ECOMPUTE_CODE_COMMIT` / `ECOMPUTE_IMAGE_REF` → ENV, read by the entrypoint). A bare local run records `"unavailable"` honestly. These fields are **traceability, not endorsement**: whoever runs the build stamps the values, anyone can rebuild an image with arbitrary strings, and the validator (clause 5.4) checks only their shape — a non-empty string, never the truth. Schema-wise they are optional typed properties of the provenance object.
 
-**Pinned artifacts** (sha256 over the committed repository bytes, not a CRLF working-tree checkout; current since the 1.3-r7 validator rewrite in commit `202ffe0`; both hashes are for `main` — the latest published release, schema-1.3-r5 (2026-11-05), predates the rewrite and pins its own r5 hashes):
+**Pinned artifacts** (sha256 over the committed repository bytes, not a CRLF working-tree checkout; current since the 1.3-r7 validator rewrite in commit `202ffe0`, plus the exit-64 usage de-collision in the r6 release; these are the hashes shipped by release schema-1.3-r6):
 - Report schema SHA-256: `830d4381e2647dd709f2cfabed7d96bd3c9d60e903689a2b2ec5662c28d6ecbf`
-- `tools/validate.py` SHA-256: `d4ec5a33112034314451c84937ded2e805431548c599b2a57dc28a22e21ebc16`
+- `tools/validate.py` SHA-256: `d46349b5b31efd95064eaffb8b6c56c46585f4a08e501d6a6f0fa40087118715`
 
 ---
 
