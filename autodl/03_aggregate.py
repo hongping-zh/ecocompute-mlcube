@@ -25,13 +25,30 @@ import json
 import os
 import subprocess
 
-# Published RTX 4090D (Ada) anchors currently shown on quantenergy.tech, for a
-# sanity cross-check of a fresh sweep. mJ/token ( == J / 1k tokens ).
-PUBLISHED_ADA = {
-    0.5: {"FP16": 1474.16, "NF4": 2301.07},
-    1.1: {"FP16": 1600.58, "NF4": 2134.35},
-    1.5: {"FP16": 2238.87, "NF4": 3103.12},
-    3.0: {"FP16": 2989.22, "NF4": 3743.12},
+# Published pooled Ada (RTX 4090 + RTX 4090D) anchors currently shown on
+# quantenergy.tech (curves.json, since the July 2026 refit), for a sanity
+# cross-check of a fresh sweep. FP16 is absolute mJ/token ( == J / 1k tokens);
+# NF4/INT8 are measured per-GPU deltas vs FP16 in percent - the two pooled
+# cards disagree by ~20 points at the same size, so compare against the card
+# you actually measured (INT8 anchors are n=1 and in flux; see curves.json).
+PUBLISHED_ADA_FP16 = {
+    0.5: 1525.33,
+    1.1: 1585.71,
+    1.5: 2213.4,
+    3.0: 3368.4,
+    7.0: 5467.88,
+}
+PUBLISHED_ADA_DELTA = {
+    "NF4":  {0.5: {"RTX 4090": 35.63, "RTX 4090D": 56.09},
+             1.1: {"RTX 4090": 16.31, "RTX 4090D": 33.35},
+             1.5: {"RTX 4090": 15.11, "RTX 4090D": 38.6},
+             3.0: {"RTX 4090": 0.76,  "RTX 4090D": 25.22},
+             7.0: {"RTX 4090": -28.46}},
+    "INT8": {0.5: {"RTX 4090": 241.89},
+             1.1: {"RTX 4090": 146.11},
+             1.5: {"RTX 4090": 180.73},
+             3.0: {"RTX 4090": 134.82},
+             7.0: {"RTX 4090": 49.54}},
 }
 
 
@@ -132,19 +149,28 @@ def _detected_gpu_label():
 
 
 def compare_published(rows):
-    print("\n== cross-check vs published quantenergy.tech RTX 4090D anchors ==")
-    print(f"  {'N(B)':>5} {'prec':>5} {'measured':>10} {'published':>10} {'diff%':>8}")
+    print("\n== cross-check vs published quantenergy.tech pooled Ada anchors ==")
+    print("  FP16 as absolute mJ/token; NF4/INT8 as delta % vs FP16, per measured GPU.")
+    print(f"  {'N(B)':>5} {'prec':>5} {'measured':>10} {'published':>10} {'diff':>10}")
     any_row = False
     for r in sorted(rows, key=lambda r: (r["params_b"] or 0, r["precision"] or "")):
-        n, prec, e = r["params_b"], r["precision"], r["energy_per_token_mj"]
-        pub = PUBLISHED_ADA.get(n, {}).get(prec) if n is not None else None
-        if pub and e:
-            diff = (float(e) - pub) / pub * 100.0
-            print(f"  {n:>5} {prec:>5} {float(e):>10.2f} {pub:>10.2f} {diff:>+7.1f}%")
+        n, prec = r["params_b"], r["precision"]
+        if n is None:
+            continue
+        if prec == "FP16":
+            mine, pub, unit = r["energy_per_token_mj"], PUBLISHED_ADA_FP16.get(n), "mJ/tok"
+        else:
+            gpu = r.get("gpu") or ""
+            gpu_key = "RTX 4090D" if "4090D" in gpu else "RTX 4090"
+            mine = r.get("vs_fp16_energy_pct")
+            pub = PUBLISHED_ADA_DELTA.get(prec, {}).get(n, {}).get(gpu_key)
+            unit = "pp"
+        if mine is not None and pub is not None:
+            diff = float(mine) - float(pub)
+            print(f"  {n:>5} {prec:>5} {float(mine):>10.2f} {float(pub):>10.2f} {diff:>+9.1f} {unit}")
             any_row = True
     if not any_row:
-        print("  (no overlapping model sizes to compare — likely a new/extended sweep)")
-
+        print("  (no overlapping model sizes to compare \u2014 likely a new/extended sweep)")
 
 def main():
     ap = argparse.ArgumentParser()

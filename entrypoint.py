@@ -63,27 +63,30 @@ DEFAULT_SITE = "https://quantenergy.tech"
 ROCM_TELEMETRY_ISSUE = "https://github.com/hongping-zh/ecocompute-mlcube/issues/27"
 
 # ------------------------------------------------------------------ reference --
-# Compact mirror of the EcoCompute measured dataset (build/measured.csv, curves.json).
+# Compact mirror of the published EcoCompute curves and anchors
+# (https://quantenergy.tech/curves.json; Ada pooled across RTX 4090 + 4090D
+# since the July 2026 refit - ada/NF4 fitted crossover 3.728B).
 # Used ONLY for the no-GPU dry-run path so the container is testable off-hardware;
 # every value it emits is flagged measurement_source="ecocompute-dataset (no local GPU)"
 # and is never presented as a fresh measurement.
 REFERENCE = {
     # measured FP16 absolute decode energy, J / 1k tokens ( == mJ / token )
     "fp16_energy": {
-        "ada":       {"n_min": 0.5, "n_max": 3.0, "anchors": [[0.5, 1474.16], [1.1, 1600.58], [1.5, 2238.87], [3.0, 2989.22]]},
+        "ada":       {"n_min": 0.5, "n_max": 7.0, "anchors": [[0.5, 1525.33], [1.1, 1585.71], [1.5, 2213.4], [3.0, 3368.4], [7.0, 5467.88]]},
         "blackwell": {"n_min": 1.1, "n_max": 7.0, "anchors": [[1.1, 1659.0], [1.5, 2411.09], [3.0, 3382.64], [7.0, 5508.56]]},
         "turing":    {"n_min": 1.1, "n_max": 7.0, "anchors": [[1.1, 4251.21], [1.5, 5731.8], [3.0, 11267.69], [7.0, 21722.65]]},
         "ampere":    {"n_min": 7.0, "n_max": 14.0, "anchors": [[7.0, 4402.43], [9.0, 5445.12], [14.0, 7359.98]]},
     },
     # NF4/INT8 delta-vs-FP16 curve params: dE%(N) = A - S * (x/(1+x)), x = N / Nstar
     "delta": {
-        "ada":       {"NF4": {"A": 106.0936, "S": 90.55, "Nstar": 0.381, "n_min": 0.5, "n_max": 3.0}},
+        "ada":       {"NF4": {"A": 54.2295, "S": 131.0936, "Nstar": 5.2846, "n_min": 0.5, "n_max": 7.0},
+                      "INT8": {"A": 291.8945, "S": 274.5289, "Nstar": 1.4423, "n_min": 0.5, "n_max": 7.0}},
         "blackwell": {"NF4": {"A": 45.8272, "S": 104.4224, "Nstar": 6.0749, "n_min": 1.1, "n_max": 7.0}},
         "turing":    {"NF4": {"A": 7.925, "S": 79.5646, "Nstar": 19.2186, "n_min": 1.1, "n_max": 7.0}},
-        "ampere":    {"NF4": {"A": -1.0293, "S": 0.0, "Nstar": 200.0, "n_min": 7.0, "n_max": 14.0},
+        "ampere":    {"NF4": {"A": -1.0293, "S": 0.0, "Nstar": 89.9821, "n_min": 7.0, "n_max": 14.0},
                       "INT8": {"A": 180.8252, "S": 127.9389, "Nstar": 10.082, "n_min": 7.0, "n_max": 14.0}},
     },
-    "gpu_label": {"ada": "RTX 4090D", "blackwell": "RTX 5090", "turing": "T4", "ampere": "A800"},
+    "gpu_label": {"ada": "RTX 4090/4090D", "blackwell": "RTX 5090", "turing": "T4", "ampere": "A800"},
 }
 
 ARCH_ALIASES = {

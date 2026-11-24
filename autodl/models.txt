@@ -4,8 +4,9 @@
 # The first four rows reproduce the models already shown for "RTX 4090D" on
 # quantenergy.tech (Qwen2-0.5B, TinyLlama-1.1B, Qwen2-1.5B, Qwen2.5-3B) so you
 # can confirm your fresh NVML measurements match the published anchors.
-# The 7B row EXTENDS the measured range on Ada (currently the site only draws
-# ada up to 3B) — this is where new, publishable data comes from.
+# The 7B row replicates the only measured 7B cell on Ada (the pooled site fit
+# now draws ada through 7B, fitted crossover ≈3.7B; the 7B anchor is n=1) —
+# a fresh measurement here is directly publishable replication data.
 #
 # 24 GB is enough for FP16 up to ~7B and NF4/INT8 well beyond; add larger rows
 # (e.g. Qwen/Qwen2.5-14B 14.0 for NF4/INT8 only) once the small ones pass.

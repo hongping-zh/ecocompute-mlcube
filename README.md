@@ -32,7 +32,7 @@ Every report the CLI emits is machine-checked against Protocol v1.1 (`tools/vali
 
 ![The differential power bench](assets/bench.png)
 
-*The differential method in one picture: an [interactive isometric diagram](https://quantenergy.tech/bench/) — two measurement arms, a chart recorder plotting live power. The demo session is illustrative of a 7B-class run on RTX 4090, calibrated to the measured ada / NF4 / 7.0B grid cell (-33.7%, n=2): right of Ada's ~3.7B break-even, where NF4 saves energy. Left of the break-even the same comparison costs energy (the 1.1B cell reads +18.4%) — that size-dependent flip is the "What we found" finding below. The interactive page is one self-contained file, works offline.*
+*The differential method in one picture: an [interactive isometric diagram](https://quantenergy.tech/bench/) — two measurement arms, a chart recorder plotting live power. The demo session is illustrative of a 7B-class run on RTX 4090, calibrated to the measured ada / NF4 / 7.0B grid cell (-33.7%, n=2; the site's data/coverage_matrix.csv): right of Ada's ~3.7B break-even, where NF4 saves energy. Left of the break-even the same comparison costs energy (the 1.1B cell reads +18.4%) — that size-dependent flip is the "What we found" finding below. The interactive page is one self-contained file, works offline.*
 
 ---
 
@@ -79,7 +79,7 @@ Two things change in `energy.json`: `scenario` becomes `Offline`, and the report
 Most "green AI" claims rest on throughput or memory savings, not energy. A quantization that halves joules but wrecks model quality isn't a win — but without measuring both, you can't tell.
 
 ### What we found
-- **NF4 crossover is hardware-dependent**: saves energy at 7B on Ada, costs energy at 3B on Blackwell (with bitsandbytes 0.45). The break-even point moved from ≈4.8B to ≈1.8B after a library update (bitsandbytes 0.50.2) — **even the version number matters**.
+- **NF4 crossover is hardware-dependent**: saves energy at 7B on Ada, costs energy at 3B on Blackwell (with bitsandbytes 0.45). The break-even point moved from ≈4.8B to below 3B after a library update (bitsandbytes 0.50.2) — **even the version number matters**.
 - **INT8 often costs energy**: +55% to +256% on consumer GPUs, with negligible perplexity damage. The problem is speed, not accuracy.
 - **FP8 is two different failures**: weight-only degrades with size (+187% to +816%), dynamic-activation degrades the other way (+323% to +83%). Saying "FP8 energy" without naming the code path is meaningless.
 
