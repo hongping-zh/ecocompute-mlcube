@@ -8,6 +8,20 @@ Each release page carries its own notes; this file is the condensed,
 repo-side view. Verdicts and pinned hashes are authoritative on the release
 page and in `TECHNICAL.md` ("Pinned artifacts").
 
+## Unreleased (main, post-r6)
+
+- **4.7.5 co-location gate — path escape closed.** An absolute `files[].file`
+  path (or any `..` segment) used to bypass the "sidecar sits next to the
+  report" contract: pathlib drops the report directory when the right operand
+  is anchored, so the digest recompute read — and certified — files outside
+  the directory being validated, even with an honest digest. `tools/validate.py`
+  now rejects any escaping reference (Posix/Windows absolute, drive-anchored,
+  or `..` segment) as a §4.7.5 violation, ungated by a declared digest, before
+  the first byte is read. This is the upstream counterpart of the bundle
+  validator's §4.7.4.1 check. `tools/validate.py`'s hash therefore moves on
+  main; the schema is unchanged, and the pins in `TECHNICAL.md` still describe
+  the schema-1.3-r6 release tree.
+
 ## schema-1.3-r6 (2026-11-24)
 
 Bundles everything merged to `main` after r5 (2026-11-05) — this is the

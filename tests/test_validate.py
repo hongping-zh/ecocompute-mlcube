@@ -428,6 +428,52 @@ def test_validator_flags_a_missing_sidecar(tmp_path):
     assert any("4.7.5" in v and "not found" in v for v in viol), viol
 
 
+def test_validator_flags_an_absolute_sidecar_path(tmp_path):
+    # path escape: pathlib drops report_dir when the right operand is
+    # absolute, so an absolute files[].file would have the recompute read
+    # (and certify) a file outside the validated directory — rejected even
+    # when the digest honestly matches that out-of-tree file
+    r = _conformant_l0_report(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    csv = tmp_path / "power_trace_measure.csv"
+    csv.rename(elsewhere / csv.name)
+    r["power_trace"]["files"][0]["file"] = str(elsewhere / csv.name)
+    _, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert any("4.7.5" in v and "escape" in v for v in viol), viol
+    # and the out-of-tree file is never read: no digest mismatch is reported
+    assert not any("does not match" in v for v in viol), viol
+
+
+def test_validator_flags_a_dotdot_sidecar_path(tmp_path):
+    # '..' segments walk out of the report directory just like an absolute
+    # path; the co-location contract rejects them too
+    r = _conformant_l0_report(tmp_path)
+    outside = tmp_path.parent / "dotdot_elsewhere"
+    outside.mkdir(exist_ok=True)
+    csv = tmp_path / "power_trace_measure.csv"
+    csv.rename(outside / csv.name)
+    r["power_trace"]["files"][0]["file"] = "../dotdot_elsewhere/" + csv.name
+    _, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert any("4.7.5" in v and "escape" in v for v in viol), viol
+
+
+def test_validator_flags_an_escaping_path_even_without_a_digest(tmp_path):
+    # the co-location gate is not conditioned on a declared digest: a
+    # digest-less whole_run entry must not point outside the tree either
+    r = _conformant_l0_report(tmp_path)
+    fe = r["power_trace"]["files"][0]
+    for key in ("sha256", "bytes", "sample_window", "integral"):
+        fe.pop(key, None)
+    fe["stream"] = "whole_run"
+    fe["file"] = "/etc/elsewhere/power_trace_measure.csv"  # Posix absolute
+    _, viol, _ = validate.validate_report(
+        r, SCHEMA, "v1.1-core", report_dir=tmp_path)
+    assert any("4.7.5" in v and "escape" in v for v in viol), viol
+
+
 def test_validator_rederives_the_integral_from_disk(tmp_path):
     r = _conformant_l0_report(tmp_path)
     r["power_trace"]["files"][0]["integral"]["value"] = 4.6  # falsified

@@ -31,7 +31,7 @@ import argparse
 import hashlib
 import json
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 try:
     import jsonschema
@@ -341,9 +341,29 @@ def check_protocol_v11_core(r: dict, report_dir: Path | None = None) -> list[Vio
             # normalization), then on-disk metadata (4.7.8), then the
             # integral re-derivation (4.7.6), then the headline link (4.7.7,
             # which is a pure cross-field check and also runs without files).
+            #
+            # Co-location gate (4.7.5, ungated by declared_sha): pathlib drops
+            # report_dir when the right operand carries an anchor (absolute
+            # path, drive letter), and '..' segments walk out of the tree —
+            # either way the recompute below would read, and certify, a file
+            # outside the directory being validated. The published contract
+            # ("the sidecar sits next to the report") is enforced here.
+            fp = str(fe.get("file", ""))
+            escaped = (PurePosixPath(fp).is_absolute()
+                       or PureWindowsPath(fp).is_absolute()
+                       or PureWindowsPath(fp).drive != ""
+                       or ".." in PurePosixPath(fp).parts
+                       or ".." in PureWindowsPath(fp).parts)
+            if escaped:
+                v.append(Violation(
+                    "7.5", f"{tag}: the sidecar path {fp!r} escapes the "
+                    "report directory (absolute path or '..' segment)",
+                    "the co-location contract is what a verdict certifies: "
+                    "reference sidecars by bare relative name and validate "
+                    "the report in the directory that holds them"))
             declared_sha = fe.get("sha256")
             raw = None
-            if declared_sha is not None:
+            if declared_sha is not None and not escaped:
                 if report_dir is None:
                     pass  # dict-only caller: file-level checks unavailable
                 else:
